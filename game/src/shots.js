@@ -1,7 +1,9 @@
 // Deterministic screenshot staging behind ?shot=chase|foot|mission|night.
-// Each scene sets up the real game state (player, car, wanted level, mission, time
-// of day) and then steps the real simulation forward a fixed number of frames, so
-// the frame is what live play looks like and the same seed always gives the same frame.
+// Each scene sets up the real game state (player, cars, wanted level, mission,
+// time of day) and then steps the real simulation forward a fixed number of
+// frames, so the frame is what live play looks like and the same seed always
+// gives the same frame. v2 scenes are busier than v1: more cruisers, more
+// traffic, more pedestrians in frame.
 import { STEP } from './config.js';
 import { SPOTS } from './city.js';
 
@@ -19,15 +21,29 @@ function putPlayerInCar(game, type, x, y, angle) {
   return car;
 }
 
-function addCruisers(game, n) {
-  // Cruisers right behind the player on the same road, already in pursuit.
+function addCruisers(game, n, spread) {
   const p = game.state.player;
   for (let i = 0; i < n; i++) {
-    game.spawnCar('police', p.x + (i === 0 ? -14 : 16), p.y + 240 + i * 130, -Math.PI / 2, false, true);
+    game.spawnCar('police', p.x + (i % 2 === 0 ? -20 : 20), p.y + 240 + i * spread, -Math.PI / 2, false, true);
   }
 }
 
-// Set game to the named scene and return nothing; main.js paints it twice.
+function addStreetTraffic(game, x, y) {
+  // A few moving cars on the same roads so the street reads as alive.
+  const types = ['sedan', 'taxi', 'van', 'beach'];
+  for (let i = 0; i < 4; i++) {
+    const car = game.spawnCar(types[i % types.length], x + (i - 1) * 160, y - 320 - i * 120, Math.PI / 2, false, false);
+    car.speed = 180 + i * 30;
+  }
+}
+
+function addCrowd(game, x, y, n) {
+  for (let i = 0; i < n; i++) {
+    game.spawnPed(x + game.rng.range(-320, 320), y + game.rng.range(-260, 260));
+  }
+}
+
+// Set the game to the named scene; main.js paints it twice.
 export function stageShot(name, city, game) {
   const s = game.state;
   if (name === 'foot') {
@@ -36,8 +52,11 @@ export function stageShot(name, city, game) {
     s.player.x = 2552; s.player.y = 3050; s.player.angle = -Math.PI / 2;
     s.clock = 12.5;
     game.spawnCar('sedan', 2590, 3100, Math.PI / 2, true, false);
-    game.spawnPed(2500, 2980); game.spawnPed(2620, 3120); game.spawnPed(2480, 3140);
-    stepFrames(game, IDLE_INPUT, 30);
+    game.spawnCar('taxi', 2460, 2960, 0, true, false);
+    game.spawnCar('sports', 2700, 3180, -Math.PI / 2, true, false);
+    addCrowd(game, 2552, 3050, 9);
+    addStreetTraffic(game, 2552, 3050);
+    stepFrames(game, IDLE_INPUT, 60);
     return;
   }
   if (name === 'mission') {
@@ -46,11 +65,12 @@ export function stageShot(name, city, game) {
     s.player.x = 2528; s.player.y = 5480;
     s.player.weapon = 'shotgun'; s.clock = 14.0;
     s.missionTimer = 0;
-    // Line the crew up on the road in front of the player so the shootout reads.
-    game.state.enemies.forEach((e, i) => { e.x = 2480 + (i % 2) * 100; e.y = 5280 + Math.floor(i / 2) * 70; });
+    game.state.enemies.forEach((e, i) => { e.x = 2440 + (i % 3) * 90; e.y = 5260 + Math.floor(i / 3) * 80; });
+    addCrowd(game, 2528, 5480, 3);
     stepFrames(game, IDLE_INPUT, 90, 0.6);
-    // A few live bullets in the air so the shootout reads in one frame.
     game.state.bullets.push({ x: s.player.x + 120, y: s.player.y + 40, angle: 0.5, speed: 950, life: 0.4, damage: 16, fromPlayer: true });
+    game.state.bullets.push({ x: s.player.x + 60, y: s.player.y - 90, angle: 1.2, speed: 950, life: 0.4, damage: 16, fromPlayer: true });
+    game.state.bullets.push({ x: s.player.x - 40, y: s.player.y + 130, angle: -0.9, speed: 700, life: 0.5, damage: 9, fromPlayer: false });
     return;
   }
   if (name === 'night') {
@@ -59,17 +79,20 @@ export function stageShot(name, city, game) {
     s.clock = 22.0;
     putPlayerInCar(game, 'taxi', 1040, 3300, -Math.PI / 2);
     if (s.taxi) { s.taxi.pickup = { x: 1040, y: 2960 }; s.taxi.picked = false; s.taxi.dest = SPOTS.uptown; }
-    game.spawnPed(990, 3100); game.spawnPed(1090, 3400);
+    addCrowd(game, 1040, 3300, 5);
+    addStreetTraffic(game, 1040, 3300);
+    game.spawnCar('sports', 1180, 3560, -Math.PI / 2, true, false);
     stepFrames(game, DRIVE_INPUT, 40);
     return;
   }
-  // Default: chase — three-star police chase at dusk downtown.
+  // Default: chase — three-star police chase at golden hour downtown.
   s.missionIndex = 0; s.cash = 1250; s.rep = 18;
   game.reset(false);
   s.clock = 18.6;
   putPlayerInCar(game, 'sports', 3024, 3000, -Math.PI / 2);
   game.addWanted(3);
-  addCruisers(game, 2);
-  game.spawnPed(2780, 2700); game.spawnPed(3160, 2900);
+  addCruisers(game, 3, 120);
+  addCrowd(game, 3024, 3000, 5);
+  addStreetTraffic(game, 3024, 3000);
   stepFrames(game, DRIVE_INPUT, 50);
 }

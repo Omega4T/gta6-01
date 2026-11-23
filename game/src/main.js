@@ -1,16 +1,18 @@
-// Solara City boot and main loop. Input is read every frame, the game advances in
-// fixed 1/60 s steps (several in a slow frame, none in a fast one), and the renderer
-// paints what is there. Screens: menu, play, paused, busted, wasted, won.
-// ?seed=N fixes the city seed. ?shot=chase|foot|mission|night stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady.
+// Solara City v2 boot and main loop. Input is read every frame, the game
+// advances in fixed 1/60 s steps (several in a slow frame, none in a fast
+// one), and the renderer paints what is there. Screens: menu, play, paused,
+// garage, busted, wasted, won.
+// ?seed=N fixes the city seed. ?shot=chase|foot|mission|night stages that
+// scene instead of running the loop, paints it twice and sets __shotReady.
 import { STEP, SEED_DEFAULT } from './config.js';
-import { createRandom } from './random.js';
 import { createCity } from './city.js';
 import { createGame } from './game.js';
 import { createAudio } from './audio.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, ACTION_ENTER, ACTION_MUTE, ACTION_PHOTO, ACTION_WEAPON_NEXT, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_PAUSE, ACTION_ENTER, ACTION_MUTE, ACTION_PHOTO, ACTION_WEAPON_NEXT, ACTION_RADIO, ACTION_GARAGE, createInput } from './input.js';
 import { createRenderer } from './render.js';
 import { stageShot } from './shots.js';
+import { cycleStation } from './radio.js';
+import { garageAction, garageCycle, garageConfirm } from './garage.js';
 
 const MAX_FRAME = 0.25;
 const WEAPON_ORDER = ['fists', 'pistol', 'shotgun', 'smg'];
@@ -27,7 +29,6 @@ const audio = createAudio();
 const game = createGame(city, seed, audio);
 const renderer = createRenderer(canvas);
 const input = createInput(canvas);
-// Debug handle for playtesting (and nothing else): the page's own state.
 window.__solara = { game, city, renderer };
 
 function announce(message) { status.textContent = message; }
@@ -40,7 +41,7 @@ function runShot(name) {
   renderer.snapTo(game.state.player.x, game.state.player.y);
   let painted = 0;
   function paint() {
-    renderer.draw(city, game, performance.now() / 1000);
+    renderer.draw(city, game, audio, performance.now() / 1000);
     painted += 1;
     if (painted < 3) requestAnimationFrame(paint);
     else window.__shotReady = true;
@@ -50,6 +51,7 @@ function runShot(name) {
 
 function runGame() {
   const saved = game.load();
+  if (audio && game.state.radioIndex) audio.setStation(game.state.radioIndex);
   game.state.screen = 'menu';
   let accumulator = 0;
   let last = performance.now();
@@ -72,11 +74,19 @@ function runGame() {
       announce(audio.muted ? 'Muted.' : 'Sound on.');
     }
     if (actions & ACTION_PHOTO) { s.photoMode = !s.photoMode; }
-    if (actions & ACTION_WEAPON_NEXT) {
+    if (s.screen === 'garage') {
+      if (actions & ACTION_WEAPON_NEXT) garageCycle(game);
+      if (actions & ACTION_CONFIRM) garageConfirm(game);
+      if (actions & ACTION_GARAGE) garageAction(game);
+      return;
+    }
+    if (actions & ACTION_WEAPON_NEXT && s.screen === 'play') {
       const i = WEAPON_ORDER.indexOf(s.player.weapon);
       s.player.weapon = WEAPON_ORDER[(i + 1) % WEAPON_ORDER.length];
       announce('Weapon: ' + s.player.weapon);
     }
+    if (actions & ACTION_RADIO && s.screen === 'play') cycleStation(game, audio);
+    if (actions & ACTION_GARAGE && s.screen === 'play') garageAction(game);
     if (actions & ACTION_ENTER && s.screen === 'play') {
       if (s.playerCar) game.exitCar();
       else {
@@ -95,8 +105,6 @@ function runGame() {
       if (s.screen === 'play') { s.screen = 'paused'; announce('Paused.'); }
       else if (s.screen === 'paused') { s.screen = 'play'; announce('Playing.'); }
     }
-    // C continues a saved game from the menu.
-    if (s.screen === 'menu' && input.anyKey) { /* Space/click handled above */ }
   }
 
   function frame(now) {
@@ -122,20 +130,17 @@ function runGame() {
       accumulator = 0;
       prevMouse = input.mouseDown;
     }
-    // Click-to-start on the menu also works through the confirm action (Space/Enter);
-    // a canvas click is treated as confirm by the input layer's mouseClicked flag.
     if (input.consumeClick() && (s.screen === 'menu' || s.screen === 'wasted' || s.screen === 'busted' || s.screen === 'won')) {
       if (s.screen === 'menu') startGame(false);
       else if (s.screen === 'won') s.screen = 'play';
       else { game.load(); startGame(false); }
     }
-    renderer.draw(city, game, now / 1000);
+    renderer.draw(city, game, audio, now / 1000);
   }
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && game.state.screen === 'play') game.state.screen = 'paused';
   });
-  // First interaction unlocks WebAudio (browsers require a gesture).
   window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
   window.addEventListener('keydown', () => audio.unlock(), { once: true });
 
