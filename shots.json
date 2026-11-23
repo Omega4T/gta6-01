@@ -1,1 +1,25 @@
-[{"name":"1-chase.png","query":"?shot=chase&seed=1"},{"name":"2-foot.png","query":"?shot=foot&seed=1"},{"name":"3-mission.png","query":"?shot=mission&seed=1"},{"name":"4-night.png","query":"?shot=night&seed=1"}]
+{
+  "version": 3,
+  "shots": [
+    {
+      "name": "1-chase.png",
+      "query": "?shot=chase&seed=1",
+      "label": "Golden-hour police chase"
+    },
+    {
+      "name": "2-foot.png",
+      "query": "?shot=foot&seed=1",
+      "label": "Downtown on foot"
+    },
+    {
+      "name": "3-mission.png",
+      "query": "?shot=mission&seed=1",
+      "label": "Dockside Debt shootout"
+    },
+    {
+      "name": "4-night.png",
+      "query": "?shot=night&seed=1",
+      "label": "Marina taxi run at night"
+    }
+  ]
+}
