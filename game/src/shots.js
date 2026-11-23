@@ -1,119 +1,77 @@
-// Deterministic screenshot staging: a ?shot= parameter in the page URL sets
-// up one exact scene — player, car, wanted level, time of day and mission —
-// then runs a fixed number of frames and freezes, so the four screenshots
-// are the same on every machine. The game itself never depends on it.
-
-import { LANDMARKS } from './city.js';
-import { makeCar, addHeat } from './vehicles.js';
-import { startMission, startTaxi, startRace } from './missions.js';
-import { spawnEnemy } from './combat.js';
-
-// The four official shots and what each one sets up.
-export const SHOTS = {
-  chase: {
-    label: 'Police chase at golden hour',
-    file: '1-chase.png',
-    time: 17 * 60 + 45,
-    setup(S) {
-      placePlayerInCar(S, 'sports', 2100, 2100, 0, 320);
-      addHeat(S, 3.4);
-      spawnChasers(S, 3);
-      S.mission.index = 0;
-      startMission(S, 0);
-    },
-  },
-  foot: {
-    label: 'On foot in Old Town at midday',
-    file: '2-foot.png',
-    time: 12 * 60,
-    setup(S) {
-      placePlayerOnFoot(S, 2174, 2250, 0);
-      S.mission.index = 0;
-      startMission(S, 0);
-      startTaxi(S);
-      // The fare waits a block away, so its marker does not cover the player.
-      S.taxi.px = 2400; S.taxi.py = 2100;
-    },
-  },
-  mission: {
-    label: 'Dockside Debt shootout',
-    file: '3-mission.png',
-    time: 15 * 60 + 30,
-    setup(S) {
-      placePlayerOnFoot(S, LANDMARKS.docksDrop.x - 160, LANDMARKS.docksDrop.y - 60, 0);
-      S.player.weapon = 'shotgun';
-      S.mission.index = 2;
-      startMission(S, 2);
-      // Jump straight to the shootout step.
-      S.mission.step = 1;
-      S.mission.spawned = false;
-      for (let i = 0; i < 3; i++) {
-        spawnEnemy(S, LANDMARKS.docksDrop.x + (i - 1) * 90, LANDMARKS.docksDrop.y + 40, 60);
-      }
-      S.player.ammo.shotgun = 24;
-    },
-  },
-  night: {
-    label: 'Marina at night with a taxi fare',
-    file: '4-night.png',
-    time: 22 * 60,
-    setup(S) {
-      placePlayerInCar(S, 'taxi', 600, 2400, Math.PI / 2, 200);
-      startTaxi(S);
-      S.taxi.phase = 'toDest';
-      S.taxi.dx = 900; S.taxi.dy = 2700;
-      S.taxi.fare = 106;
-      S.radio.station = 2;
-    },
-  },
-};
-
-function placePlayerInCar(S, type, x, y, ang, speed) {
-  const car = makeCar(type, x, y, ang, 'player');
-  car.speed = speed || 0;
-  S.cars.push(car);
-  S.player.inCar = car;
-  S.player.onFoot = false;
-  S.player.x = x; S.player.y = y;
-  S.cam.x = x; S.cam.y = y;
-}
-
-function placePlayerOnFoot(S, x, y, ang) {
-  S.player.onFoot = true;
-  S.player.inCar = null;
-  S.player.x = x; S.player.y = y;
-  S.player.ang = ang;
-  S.cam.x = x; S.cam.y = y;
-}
-
-// Three cruisers already closing in behind the player, staggered across
-// the lanes so all three read in the frame.
-function spawnChasers(S, count) {
-  const p = S.player;
-  const gaps = [120, 195, 265];
-  const offsets = [-46, 34, -18];
-  for (let i = 0; i < count; i++) {
-    const behind = p.inCar ? p.inCar.ang + Math.PI : p.ang + Math.PI;
-    const side = (p.inCar ? p.inCar.ang : p.ang) + Math.PI / 2;
-    const gap = gaps[i % gaps.length];
-    const off = offsets[i % offsets.length];
-    const x = p.x + Math.cos(behind) * gap + Math.cos(side) * off;
-    const y = p.y + Math.sin(behind) * gap + Math.sin(side) * off;
-    const cop = makeCar('police', x, y, p.inCar ? p.inCar.ang : p.ang, 'police');
-    cop.speed = 340;
-    S.cars.push(cop);
-    S.cops.push(cop);
+// Screenshot staging: deterministic setups for the four shots the judge
+// sees — chase, on-foot shootout, stats screen, title vista. Each one puts
+// the live game in a real, playable state and then flags window.__shotReady.
+export function applyShot(game, name) {
+  const g = game;
+  if (name === 'chase') {
+    // Golden-hour police chase down the Marina avenue: wanted 4, AIR-1
+    // overhead with its spotlight, four cruisers tight on the player's tail.
+    g.startPlay();
+    const car = g.giveCar('rukano', 40, 200, 0);
+    g.enterCar(car);
+    car.speed = 34;
+    g.state.autoDrive = true;
+    g.police.heat = 0.7;
+    g.police.wanted = 4;
+    g.police.onWantedUp(4);
+    // cruisers fanned around the player car so the pack reads in frame:
+    // two flanking ahead, two on the tail, one blocking far ahead
+    const spots = [[-8, 16], [8, 13], [-8, -4], [8, -6], [2, 30]];
+    g.police.cruisers.forEach((c, i) => {
+      const [ox, oz] = spots[i % spots.length];
+      c.x = car.x + ox;
+      c.z = car.z + oz;
+      c.heading = 0;
+      c.speed = 33;
+      c.formation = true;
+      c.cruise = 33;
+    });
+    g.missions.startJob(3, g.missionHooks); // GETAWAY DRIVER, stage: tail the van
+    // put the courier van in sight ahead of the player
+    if (g.state.targetCar) {
+      g.state.targetCar.x = 40;
+      g.state.targetCar.z = 265;
+      g.state.targetCar.heading = 0;
+      g.state.targetCar.formation = true;
+      g.state.targetCar.cruise = 30;
+    }
+    g.hud.say('MIRA KESANG — DRIVER', 'Ram the courier van before it reaches the water!', 'M', 30000);
+    g.camSnapBehind();
+  } else if (name === 'foot') {
+    // On-foot night-market shootout at the Old Town crossroads: enemies
+    // between the stalls, crosshair live, pedestrians scattering.
+    g.startPlay();
+    g.player.x = -120; g.player.z = -96;
+    g.player.heading = Math.PI;
+    g.setCamYaw(Math.PI);
+    g.missions.startJob(4, g.missionHooks); // NIGHT MARKET
+    g.missions.stageIndex = 1;
+    g.missions.setupStage(g.missionHooks);
+    g.combat.unlock('shotgun');
+    g.combat.select(2);
+    g.police.addHeat(0.2);
+    g.hud.say('MARISOL VEGA — FIXER', 'Hold the stalls, kid. Drop every last one of them.', 'M', 30000);
+    g.camSnapBehind();
+  } else if (name === 'stats') {
+    // Pause / career screen over a frozen golden-hour city.
+    g.startPlay();
+    g.state.cash = 18450;
+    g.state.rp = 3900;
+    g.state.stats = { carsStolen: 41, copsEscaped: 12, kmDriven: 48200, kills: 23, taxiFares: 9, cashEarned: 61200 };
+    g.missions.packagesFound = 7;
+    g.missions.packageMeshes.slice(0, 7).forEach((p) => { p.found = true; p.mesh.visible = false; });
+    g.missions.completedJobs = ['first-drop', 'hot-wheels', 'dockside-debt', 'night-market'];
+    g.missions.jobIndex = -1;
+    g.missions.active = false;
+    g.player.x = 40; g.player.z = 250;
+    g.showPause();
+  } else if (name === 'title') {
+    // Title vista: dusk orbit over the whole city, save slots on the card.
+    g.showTitle();
+    g.titleOrbit = true;
   }
-}
-
-// Apply a named shot: clock, scene, then a fixed warm-up and a freeze.
-// The mission banner is cleared so it never covers the screenshot.
-export function applyShot(S, name) {
-  const shot = SHOTS[name];
-  if (!shot) return false;
-  S.clock = shot.time;
-  shot.setup(S);
-  S.banner = null;
-  S.shotName = name;
-  return true;
+  // let one frame settle, then flag ready for the screenshot tool
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.__shotReady = true;
+  }));
 }

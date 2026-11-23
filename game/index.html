@@ -1,19 +1,277 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solara City — an open-world crime game</title>
 <link rel="icon" href="data:,">
+<title>Solara City 3D — an open-world crime game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0c1016; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e1a;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #fff; }
+  #app { position: fixed; inset: 0; }
+  #gl { position: absolute; inset: 0; }
+  #gl canvas { display: block; }
+  .hud { position: absolute; pointer-events: none; user-select: none; }
+  .panel { background: rgba(8, 12, 24, .72); border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px; backdrop-filter: blur(2px); }
+  .label { font-size: 10px; letter-spacing: .18em; color: #9fb4d8; text-transform: uppercase; }
+  .big { font-weight: 800; }
+
+  /* mission banner, top-left */
+  #mission { top: 14px; left: 14px; width: 340px; padding: 10px 12px; }
+  #mission .m-title { font-size: 15px; font-weight: 800; letter-spacing: .04em; }
+  #mission .m-title .m-num { color: #ffb02e; }
+  #mission .m-obj { font-size: 13px; color: #e8eefc; margin-top: 3px; line-height: 1.35; }
+  #mission .m-row { display: flex; justify-content: space-between; margin-top: 7px;
+    font-size: 12px; color: #cdd9f2; }
+  #mission .m-bar { height: 6px; background: rgba(255,255,255,.14); border-radius: 3px;
+    margin-top: 5px; overflow: hidden; }
+  #mission .m-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ffb02e, #ff5a3c);
+    border-radius: 3px; transition: width .3s; }
+  #mission .m-next { font-size: 11px; color: #9fb4d8; margin-top: 6px; }
+
+  /* dispatch panel, right side under cash */
+  #dispatch { top: 122px; right: 14px; width: 258px; padding: 9px 11px; }
+  #dispatch .d-head { display: flex; justify-content: space-between; align-items: baseline; }
+  #dispatch .d-title { font-size: 12px; font-weight: 800; letter-spacing: .12em; color: #ff6b5e; }
+  #dispatch .d-count { font-size: 11px; color: #cdd9f2; }
+  #dispatch ul { list-style: none; margin-top: 6px; }
+  #dispatch li { display: flex; justify-content: space-between; font-size: 12px;
+    padding: 3px 0; border-top: 1px solid rgba(255,255,255,.07); }
+  #dispatch li .u-name { font-weight: 700; }
+  #dispatch li .u-tactic { color: #ffb02e; font-weight: 700; }
+  #dispatch li .u-dist { color: #9fb4d8; }
+  #dispatch .d-more { font-size: 11px; color: #9fb4d8; margin-top: 4px; }
+
+  /* cash + wanted, top-right */
+  #topright { top: 14px; right: 14px; text-align: right; }
+  #cash { font-size: 26px; font-weight: 800; color: #7dff9b; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+  #stars { font-size: 22px; letter-spacing: 2px; margin-top: 2px; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #stars .on { color: #ffd23e; } #stars .off { color: rgba(255,255,255,.28); }
+  #heat { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: #ff8a7a; margin-top: 2px; }
+  #rank { font-size: 11px; color: #cdd9f2; margin-top: 2px; letter-spacing: .08em; }
+
+  /* weapon slots + crew, bottom-right */
+  #loadout { right: 14px; bottom: 14px; width: 300px; }
+  #weapons { display: flex; gap: 5px; padding: 8px; }
+  .wslot { flex: 1; text-align: center; padding: 6px 2px 5px; border-radius: 6px;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.10); }
+  .wslot.active { border-color: #ffb02e; background: rgba(255,176,46,.18); }
+  .wslot.locked { opacity: .38; }
+  .wslot .w-key { font-size: 9px; color: #9fb4d8; }
+  .wslot .w-name { font-size: 11px; font-weight: 800; margin-top: 1px; }
+  .wslot .w-ammo { font-size: 10px; color: #cdd9f2; }
+  #crew { display: flex; gap: 5px; padding: 0 8px 8px; }
+  .crewcard { flex: 1; padding: 6px 7px; border-radius: 6px; background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.10); font-size: 11px; }
+  .crewcard.ready { border-color: #7dff9b; }
+  .crewcard .c-name { font-weight: 800; }
+  .crewcard .c-role { color: #9fb4d8; font-size: 10px; }
+  .crewcard .c-abil { color: #ffd23e; font-weight: 700; margin-top: 2px; }
+  .crewcard .c-cd { color: #9fb4d8; margin-top: 1px; }
+
+  /* minimap + vitals, bottom-left */
+  #minimapWrap { left: 14px; bottom: 14px; }
+  #minimap { display: block; border-radius: 50%; border: 3px solid rgba(255,255,255,.35);
+    background: #10182c; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
+  #district { text-align: center; font-size: 12px; font-weight: 800; letter-spacing: .14em;
+    margin-top: 6px; text-shadow: 0 2px 4px rgba(0,0,0,.8); }
+  #vitals { margin-top: 6px; width: 190px; margin-left: auto; margin-right: auto; }
+  .vbar { height: 8px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,.25); }
+  .vbar + .vbar { margin-top: 4px; }
+  #hpFill { height: 100%; background: #4ade80; width: 100%; }
+  #arFill { height: 100%; background: #60a5fa; width: 0%; }
+  #vitals .v-label { display: flex; justify-content: space-between; font-size: 10px;
+    color: #dbe6ff; margin-top: 3px; letter-spacing: .1em; }
+
+  /* speed + car, bottom-center-right */
+  #drive { right: 330px; bottom: 14px; text-align: right; }
+  #speed { font-size: 44px; font-weight: 800; line-height: .95;
+    text-shadow: 0 3px 8px rgba(0,0,0,.75); }
+  #speed small { font-size: 14px; color: #cdd9f2; font-weight: 700; }
+  #carname { font-size: 13px; font-weight: 700; margin-top: 2px; text-shadow: 0 2px 4px rgba(0,0,0,.8); }
+  #carcond { font-size: 11px; color: #ffb02e; font-weight: 700; }
+  #radio { font-size: 12px; color: #e8eefc; margin-top: 5px; text-shadow: 0 2px 4px rgba(0,0,0,.8); }
+  #radio b { color: #ff8ad8; }
+
+  /* dialog box, bottom-center */
+  #dialog { left: 50%; bottom: 150px; transform: translateX(-50%); width: 520px;
+    padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start; }
+  #portrait { width: 52px; height: 52px; border-radius: 50%; flex: none;
+    background: linear-gradient(135deg, #ff5a3c, #ffb02e); border: 2px solid rgba(255,255,255,.5);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 800; color: #fff; }
+  #dialog .d-who { font-size: 12px; font-weight: 800; letter-spacing: .08em; color: #ffb02e; }
+  #dialog .d-text { font-size: 14px; line-height: 1.4; color: #f2f6ff; margin-top: 2px; }
+
+  /* crosshair + hints */
+  #crosshair { left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 26px;
+    color: rgba(255,255,255,.9); text-shadow: 0 0 6px #000; display: none; }
+  #hint { left: 50%; bottom: 96px; transform: translateX(-50%); font-size: 13px; font-weight: 700;
+    background: rgba(8,12,24,.72); border: 1px solid rgba(255,255,255,.16); border-radius: 6px;
+    padding: 6px 12px; }
+  #toast { left: 50%; top: 84px; transform: translateX(-50%); font-size: 15px; font-weight: 800;
+    color: #ffd23e; text-shadow: 0 2px 6px rgba(0,0,0,.8); text-align: center; }
+
+  /* overlays: title / pause / stats / busted / complete */
+  .screen { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(5, 8, 18, .45); pointer-events: auto; }
+  .screen.hidden { display: none; }
+  .card { background: rgba(8, 12, 24, .88); border: 1px solid rgba(255,255,255,.18);
+    border-radius: 14px; padding: 26px 30px; width: 640px; max-width: 92vw;
+    box-shadow: 0 18px 60px rgba(0,0,0,.6); }
+  .card h1 { font-size: 44px; letter-spacing: .06em; line-height: 1; }
+  .card h1 .sun { color: #ffb02e; }
+  .card h2 { font-size: 22px; letter-spacing: .06em; margin-bottom: 10px; }
+  .card .sub { color: #ffb02e; font-weight: 800; letter-spacing: .22em; font-size: 12px;
+    text-transform: uppercase; margin-bottom: 8px; }
+  .card p { color: #cdd9f2; font-size: 14px; line-height: 1.55; margin-top: 8px; }
+  .card .keys { font-size: 13px; color: #e8eefc; line-height: 1.9; margin-top: 12px; }
+  .card .keys b { color: #ffd23e; background: rgba(255,255,255,.1); border-radius: 4px; padding: 1px 7px; }
+  .btn { display: inline-block; margin-top: 18px; padding: 12px 26px; border-radius: 8px;
+    background: #ffb02e; color: #1a1206; font-weight: 800; font-size: 15px; border: none;
+    cursor: pointer; letter-spacing: .04em; }
+  .btn.ghost { background: rgba(255,255,255,.12); color: #fff; margin-left: 10px; }
+  .slots { display: flex; gap: 10px; margin-top: 14px; }
+  .slot { flex: 1; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 10px 12px;
+    font-size: 13px; cursor: pointer; background: rgba(255,255,255,.05); }
+  .slot:hover { border-color: #ffb02e; }
+  .slot .s-name { font-weight: 800; }
+  .slot .s-info { color: #9fb4d8; font-size: 12px; margin-top: 3px; line-height: 1.5; }
+  .slot .s-bar { height: 5px; background: rgba(255,255,255,.14); border-radius: 3px; margin-top: 7px; }
+  .slot .s-fill { height: 100%; background: #ffb02e; border-radius: 3px; }
+  .statsgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+  .statsgrid .box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px; padding: 10px 12px; }
+  .statsgrid .box h3 { font-size: 11px; letter-spacing: .16em; color: #9fb4d8; text-transform: uppercase; }
+  .statsgrid .box .row { display: flex; justify-content: space-between; font-size: 13px;
+    padding: 3px 0; border-top: 1px solid rgba(255,255,255,.06); }
+  .statsgrid .box .row b { color: #ffd23e; }
+  #districtMap { width: 100%; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); }
+  .joblist { font-size: 13px; line-height: 1.7; margin-top: 8px; }
+  .joblist .done { color: #7dff9b; } .joblist .todo { color: #9fb4d8; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #0b0e1a; z-index: 50; font-size: 16px; color: #9fb4d8; letter-spacing: .1em; }
+  #app.hideHud .hud { display: none !important; }
 </style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
 </head>
 <body>
-<canvas id="game" aria-label="Solara City: drive, walk, take jobs from Marisol Vega, outrun the police"></canvas>
-<p id="status" role="status" aria-live="polite">Solara City is loading.</p>
+<div id="app">
+  <div id="gl"></div>
+
+  <div id="loading">LOADING SOLARA CITY…</div>
+
+  <!-- HUD -->
+  <div class="hud panel" id="mission">
+    <div class="m-title"><span class="m-num" id="mNum">JOB 1 ·</span> <span id="mTitle">First Drop</span></div>
+    <div class="m-obj" id="mObj">Meet Marisol at the Marina lookout.</div>
+    <div class="m-row"><span id="mStage">STAGE 1/3</span><span id="mDist">182 m</span><span id="mTimer"></span></div>
+    <div class="m-bar"><div class="m-fill" id="mFill"></div></div>
+    <div class="m-next" id="mNext">NEXT: Drive to the docks</div>
+  </div>
+
+  <div class="hud" id="topright">
+    <div id="cash">$250</div>
+    <div id="stars"></div>
+    <div id="heat"></div>
+    <div id="rank">RANK 1 · ROOKIE · 0 / 400 RP</div>
+  </div>
+
+  <div class="hud panel" id="dispatch">
+    <div class="d-head"><span class="d-title">SCPD DISPATCH</span><span class="d-count" id="dCount">0 UNITS</span></div>
+    <ul id="dList"></ul>
+    <div class="d-more" id="dMore"></div>
+  </div>
+
+  <div class="hud" id="minimapWrap">
+    <canvas id="minimap" width="190" height="190"></canvas>
+    <div id="district">MARINA</div>
+    <div id="vitals">
+      <div class="vbar"><div id="hpFill"></div></div>
+      <div class="vbar"><div id="arFill"></div></div>
+      <div class="v-label"><span>HEALTH</span><span>ARMOUR</span></div>
+    </div>
+  </div>
+
+  <div class="hud" id="drive">
+    <div id="speed">0 <small>KM/H</small></div>
+    <div id="carname">ON FOOT</div>
+    <div id="carcond"></div>
+    <div id="radio"><b>SOLARA FM</b> — Golden Hour Mix</div>
+  </div>
+
+  <div class="hud" id="loadout">
+    <div class="panel" id="weapons"></div>
+    <div id="crew"></div>
+  </div>
+
+  <div class="hud panel" id="dialog" style="display:none">
+    <div id="portrait">M</div>
+    <div><div class="d-who" id="dWho">MARISOL VEGA — FIXER</div><div class="d-text" id="dText"></div></div>
+  </div>
+
+  <div class="hud" id="crosshair">+</div>
+  <div class="hud" id="hint" style="display:none"></div>
+  <div class="hud" id="toast"></div>
+
+  <!-- TITLE -->
+  <div class="screen" id="titleScreen">
+    <div class="card">
+      <div class="sub">An open-world crime game · make.fun gta6-01</div>
+      <h1>SOLARA <span class="sun">CITY</span></h1>
+      <p>Sun-soaked coast, six districts, eight story jobs. Steal any car, outrun the
+      SCPD from zero to five stars, build your crew, fill the garage — and don't get
+      busted on the Marina strip.</p>
+      <div class="keys">
+        <b>W A S D</b> walk / drive &nbsp; <b>Mouse</b> look &amp; aim &nbsp; <b>Click</b> shoot<br>
+        <b>E</b> enter / exit car &nbsp; <b>Space</b> brake &nbsp; <b>Shift</b> sprint<br>
+        <b>1–5</b> weapons &nbsp; <b>Z X C</b> crew abilities &nbsp; <b>M</b> next job<br>
+        <b>T</b> taxi fare &nbsp; <b>G</b> garage &nbsp; <b>R</b> radio &nbsp; <b>P</b> pause / stats
+      </div>
+      <div class="slots" id="titleSlots"></div>
+      <button class="btn" id="btnPlay">START ENGINE</button>
+      <button class="btn ghost" id="btnContinue">CONTINUE</button>
+    </div>
+  </div>
+
+  <!-- PAUSE / STATS -->
+  <div class="screen hidden" id="pauseScreen">
+    <div class="card" style="width:760px">
+      <h2>PAUSED — CAREER</h2>
+      <div class="statsgrid">
+        <div class="box">
+          <h3>District standing</h3>
+          <canvas id="districtMap" width="330" height="220"></canvas>
+          <div id="districtList" style="font-size:12px;line-height:1.7;margin-top:6px"></div>
+        </div>
+        <div class="box">
+          <h3>Career stats</h3>
+          <div id="careerStats"></div>
+          <h3 style="margin-top:10px">Story jobs</h3>
+          <div class="joblist" id="jobList"></div>
+        </div>
+      </div>
+      <div class="slots" id="pauseSlots"></div>
+      <button class="btn" id="btnResume">RESUME</button>
+      <button class="btn ghost" id="btnQuit">QUIT TO TITLE</button>
+    </div>
+  </div>
+
+  <!-- MISSION COMPLETE / BUSTED / WASTED -->
+  <div class="screen hidden" id="bannerScreen">
+    <div class="card" style="width:480px;text-align:center">
+      <div class="sub" id="bannerKicker">JOB COMPLETE</div>
+      <h2 id="bannerTitle">FIRST DROP</h2>
+      <p id="bannerText"></p>
+      <button class="btn" id="btnBanner">CONTINUE</button>
+    </div>
+  </div>
+</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
