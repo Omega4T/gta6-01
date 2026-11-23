@@ -94,14 +94,17 @@ export function updatePolice(S, dt) {
     if (Math.abs(diff) > 2.2 && cop.speed > 40) {
       driveCar(cop, -0.6, Math.sign(diff), false, dt);
     } else {
-      // Close in: brake to a stop on the player so he can be caught.
-      const throttle = d > 60 ? 1 : d > 40 ? 0.4 : -0.6;
+      // Close in: ease off the throttle so the cruiser coasts to a stop on
+      // the player instead of reversing away from him.
+      const throttle = d > 60 ? 1 : d > 40 ? 0.4 : 0;
       driveCar(cop, throttle, clamp(diff * 1.4, -1, 1), false, dt);
     }
     moveCar(S, cop, dt);
-    // Ramming the player on foot hurts; ramming the player's car damages it.
+    // Ramming the player on foot hurts, and ramming the player's car
+    // damages it — but only a fast hit shoves. A slow cruiser sitting on
+    // the player pins him down instead of pushing him away.
     if (d < 46) {
-      if (p.onFoot) {
+      if (p.onFoot && Math.abs(cop.speed) > 150) {
         p.hp -= 14 * dt;
         p.x += (p.x - cop.x) / (d || 1) * 60 * dt;
         p.y += (p.y - cop.y) / (d || 1) * 60 * dt;
@@ -110,14 +113,14 @@ export function updatePolice(S, dt) {
         cop.speed *= 0.6;
       }
     }
-    // Busted: a cruiser sitting on the player on foot ends the run. The
-    // timer runs whenever the cop is on top of the player, whatever its
-    // speed, so a caught player is actually caught.
+    // Busted: a cruiser on top of the player on foot ends the run. The
+    // timer builds while the cop is in contact and drains when he loses
+    // the player, so repeated close passes add up to a catch.
     if (p.onFoot && d < 34) {
       S.bustedTimer += dt;
       if (S.bustedTimer > 1.2) bustPlayer(S);
     } else {
-      S.bustedTimer = 0;
+      S.bustedTimer = Math.max(0, S.bustedTimer - dt * 2);
     }
     if (cop.hp <= 0) {
       cop.dead = true;
