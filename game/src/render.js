@@ -64,6 +64,7 @@ export function drawGame(ctx, S) {
   drawPickups(ctx, S);
   drawCars(ctx, S);
   drawPeds(ctx, S);
+  drawPlayer(ctx, S);
   drawEnemies(ctx, S);
   drawBullets(ctx, S);
   drawParticles(ctx, S);
@@ -363,6 +364,33 @@ function drawPeds(ctx, S) {
   }
 }
 
+// The player on foot: a white ring, a yellow shirt and a gun barrel toward
+// the aim, so he reads at a glance among the pedestrians.
+function drawPlayer(ctx, S) {
+  const p = S.player;
+  if (!p.onFoot) return;
+  if (!inView(S, p.x, p.y, 40)) return;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 17, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#ffd94a';
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e8c9a0';
+  ctx.beginPath();
+  ctx.arc(p.x, p.y - 4, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(p.x + Math.cos(p.ang) * 20, p.y + Math.sin(p.ang) * 20);
+  ctx.stroke();
+}
+
 function drawEnemies(ctx, S) {
   for (const e of S.enemies) {
     if (e.dead) continue;
@@ -567,7 +595,7 @@ export function drawHud(ctx, S) {
   ctx.fillText(w.name + '  [' + ammoText + ']', 16, H - 56);
   ctx.font = '13px sans-serif';
   ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.fillText('♪ ' + CFG.radio[S.radio.station].name + '  (R to change, M mute)', 16, H - 34);
+  ctx.fillText('♪ ' + CFG.radio[S.radio.station].name + '  (R to change, 0 mute)', 16, H - 34);
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.fillText('1-4 weapons · E enter car · T taxi · G garage · P pause', 16, H - 14);
   // Speed, bottom centre, when driving.

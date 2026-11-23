@@ -39,13 +39,14 @@ export function buildCity(rng) {
       const y0 = ROAD_CENTERS[bj] + half + 12;
       const y1 = ROAD_CENTERS[bj + 1] - half - 12;
       const roll = rng();
-      const kind = roll < 0.62 ? 'buildings' : roll < 0.74 ? 'park' : roll < 0.84 ? 'plaza' : roll < 0.92 ? 'parking' : 'grass';
+      const kind = roll < 0.72 ? 'buildings' : roll < 0.82 ? 'park' : roll < 0.90 ? 'plaza' : roll < 0.96 ? 'parking' : 'grass';
       const block = { x0, y0, x1, y1, kind, district: districtAt(x0 + 10, y0 + 10).name };
       blocks.push(block);
 
       if (kind === 'buildings') {
-        // 3 to 6 buildings on a loose sub-grid inside the block.
-        const count = randi(rng, 3, 6);
+        // 4 to 7 buildings on a loose sub-grid inside the block, plus a
+        // few trees along the block's edges so no block reads as bare grass.
+        const count = randi(rng, 4, 7);
         const cols = count <= 4 ? 2 : 3;
         const rows = Math.ceil(count / cols);
         const cw = (x1 - x0) / cols;
@@ -68,6 +69,11 @@ export function buildCity(rng) {
             });
             placed++;
           }
+        }
+        const shade = randi(rng, 2, 4);
+        for (let i = 0; i < shade; i++) {
+          const tx = rand(rng, x0 + 24, x1 - 24), ty = rand(rng, y0 + 24, y1 - 24);
+          if (!blockedAtPoint(buildings, tx, ty, 26)) trees.push({ x: tx, y: ty, palm: false });
         }
       } else if (kind === 'park') {
         const n = randi(rng, 6, 10);

@@ -27,7 +27,7 @@ export function missionSteps(S, index) {
     case 2:
       return [
         { kind: 'goto', x: L.docksDrop.x, y: L.docksDrop.y, label: 'Get to the Docks warehouse' },
-        { kind: 'kill', count: 4, cx: L.docksDrop.x, cy: L.docksDrop.y, label: 'Settle the debt — 4 crew left' },
+        { kind: 'kill', count: 4, cx: L.docksDrop.x, cy: L.docksDrop.y, label: 'Settle the debt' },
       ];
     case 3:
       return [
@@ -108,6 +108,9 @@ export function missionTarget(S) {
 export function objectiveText(S) {
   const step = currentStep(S);
   if (!step) {
+    // No mission running: show the taxi job if one is, else the next call.
+    const taxi = taxiTarget(S);
+    if (taxi) return taxi.label;
     if (S.mission.index >= CFG.missions.length) return 'All jobs done — free roam Solara City.';
     return 'Press M to call Marisol for the next job.';
   }
