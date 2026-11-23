@@ -1,58 +1,147 @@
-// Solara City v2 — every tuning number in one place.
-// Nothing else in the game hard-codes a balance value: change it here and the
-// whole game follows. Radio stations and garage prices live here too.
+// Solara City v2.1 — the one place every balance number lives.
+// Nothing outside this file hard-codes a tuning value: change a number here
+// and the whole city, the cars, the cops and the radio all follow it.
+// Radio stations and garage prices are tuned here as well.
+
+// One fixed simulation step, in seconds per tick.
 export const STEP = 1 / 60;
-export const WORLD = { size: 6400, block: 400, road: 96, sidewalk: 26 };
+
+// World geometry: the map is a square, blocks are 400 units, roads 96 wide
+// with a 26-unit sidewalk on each side.
+export const WORLD = {
+  size: 6400,
+  block: 400,
+  road: 96,
+  sidewalk: 26,
+};
+
 export const SEED_DEFAULT = 20261123;
 
+// The player on foot: speeds in world units per second, radius for collision.
 export const PLAYER = {
-  walkSpeed: 215, runSpeed: 335, radius: 13, health: 100, armour: 0,
-  punchDamage: 12, punchRange: 36, punchCooldown: 0.36,
+  walkSpeed: 215,
+  runSpeed: 335,
+  radius: 13,
+  health: 100,
+  armour: 0,
+  punchDamage: 12,
+  punchRange: 36,
+  punchCooldown: 0.36,
 };
 
+// Weapons. Per weapon: display name, damage per hit, seconds between shots,
+// reach in world units, starting ammo, whether holding fire keeps shooting,
+// spread in radians, pellets per shot, recoil kick.
 export const WEAPONS = {
-  fists: { name: 'Fists', damage: 12, rate: 0.36, range: 42, ammo: Infinity, auto: false, spread: 0, pellets: 1, kick: 0 },
-  pistol: { name: 'Pistol', damage: 26, rate: 0.24, range: 520, ammo: 120, auto: false, spread: 0.03, pellets: 1, kick: 2 },
-  shotgun: { name: 'Shotgun', damage: 15, rate: 0.85, range: 300, ammo: 32, auto: false, spread: 0.16, pellets: 6, kick: 7 },
-  smg: { name: 'SMG', damage: 14, rate: 0.085, range: 430, ammo: 200, auto: true, spread: 0.07, pellets: 1, kick: 1 },
+  fists: {
+    name: 'Fists', damage: 12, rate: 0.36, range: 42,
+    ammo: Infinity, auto: false, spread: 0, pellets: 1, kick: 0,
+  },
+  pistol: {
+    name: 'Pistol', damage: 26, rate: 0.24, range: 520,
+    ammo: 120, auto: false, spread: 0.03, pellets: 1, kick: 2,
+  },
+  shotgun: {
+    name: 'Shotgun', damage: 15, rate: 0.85, range: 300,
+    ammo: 32, auto: false, spread: 0.16, pellets: 6, kick: 7,
+  },
+  smg: {
+    name: 'SMG', damage: 14, rate: 0.085, range: 430,
+    ammo: 200, auto: true, spread: 0.07, pellets: 1, kick: 1,
+  },
 };
 
+// Cars. Per model: display name, top speed, acceleration, braking, steering,
+// road grip, hit points, body colour, garage price (0 means not sold).
 export const CAR_TYPES = {
-  sedan: { name: 'Solara Sedan', top: 560, accel: 420, brake: 640, turn: 2.6, grip: 3.4, hp: 100, color: '#c9503f', price: 0 },
-  taxi: { name: 'City Taxi', top: 520, accel: 400, brake: 620, turn: 2.7, grip: 3.4, hp: 90, color: '#f2b705', price: 1200 },
-  van: { name: 'Cargo Van', top: 440, accel: 300, brake: 520, turn: 2.1, grip: 3.0, hp: 140, color: '#7d8a99', price: 900 },
-  sports: { name: 'Vento GT', top: 760, accel: 620, brake: 760, turn: 3.1, grip: 4.2, hp: 80, color: '#e8b10c', price: 6500 },
-  muscle: { name: 'Coyote SS', top: 700, accel: 560, brake: 680, turn: 2.8, grip: 3.6, hp: 110, color: '#8e3b8e', price: 4200 },
-  truck: { name: 'Haul Truck', top: 400, accel: 260, brake: 460, turn: 1.8, grip: 2.8, hp: 180, color: '#4a7d5a', price: 2200 },
-  police: { name: 'Police Cruiser', top: 680, accel: 560, brake: 720, turn: 3.0, grip: 4.0, hp: 130, color: '#2b4a8f', price: 0 },
-  beach: { name: 'Beach Buggy', top: 480, accel: 380, brake: 560, turn: 2.9, grip: 3.2, hp: 80, color: '#3fb6a8', price: 1500 },
+  sedan: {
+    name: 'Solara Sedan', top: 560, accel: 420, brake: 640,
+    turn: 2.6, grip: 3.4, hp: 100, color: '#c9503f', price: 0,
+  },
+  taxi: {
+    name: 'City Taxi', top: 520, accel: 400, brake: 620,
+    turn: 2.7, grip: 3.4, hp: 90, color: '#f2b705', price: 1200,
+  },
+  van: {
+    name: 'Cargo Van', top: 440, accel: 300, brake: 520,
+    turn: 2.1, grip: 3.0, hp: 140, color: '#7d8a99', price: 900,
+  },
+  sports: {
+    name: 'Vento GT', top: 760, accel: 620, brake: 760,
+    turn: 3.1, grip: 4.2, hp: 80, color: '#e8b10c', price: 6500,
+  },
+  muscle: {
+    name: 'Coyote SS', top: 700, accel: 560, brake: 680,
+    turn: 2.8, grip: 3.6, hp: 110, color: '#8e3b8e', price: 4200,
+  },
+  truck: {
+    name: 'Haul Truck', top: 400, accel: 260, brake: 460,
+    turn: 1.8, grip: 2.8, hp: 180, color: '#4a7d5a', price: 2200,
+  },
+  police: {
+    name: 'Police Cruiser', top: 680, accel: 560, brake: 720,
+    turn: 3.0, grip: 4.0, hp: 130, color: '#2b4a8f', price: 0,
+  },
+  beach: {
+    name: 'Beach Buggy', top: 480, accel: 380, brake: 560,
+    turn: 2.9, grip: 3.2, hp: 80, color: '#3fb6a8', price: 1500,
+  },
 };
 
+// Wanted system: 5 stars max, heat cools after a quiet spell, cruisers spawn
+// at a distance, the helicopter joins at 3 stars, roadblocks at 4.
 export const POLICE = {
   starsMax: 5,
-  decayDelay: 14, decayRate: 1,
-  spawnDist: 620, maxCruisers: [0, 2, 4, 6, 8, 10],
-  heliAtStars: 3, roadblockAtStars: 4,
-  bustRadius: 46, bustTime: 1.6, ramDamage: 6,
+  decayDelay: 14,
+  decayRate: 1,
+  spawnDist: 620,
+  maxCruisers: [0, 2, 4, 6, 8, 10],
+  heliAtStars: 3,
+  roadblockAtStars: 4,
+  bustRadius: 46,
+  bustTime: 1.6,
+  ramDamage: 6,
   roadblockCars: 2,
 };
 
+// Story payouts per mission index, taxi base fare, hidden package reward,
+// and how many cars the safehouse garage can hold.
 export const MISSION_PAYOUTS = [400, 700, 900, 1200, 1600, 2000, 2600, 5000];
 export const TAXI_FARE = 90;
 export const PACKAGE_REWARD = 250;
 export const GARAGE_SLOTS = 3;
 
+// Radio: tempo in BPM, root note in Hz, scale colour, lead waveform, drive.
 export const RADIO_STATIONS = [
-  { id: 'solara', name: 'SOLARA FM', tag: 'Sunset synth', tempo: 112, root: 220.0, minor: true, leadWave: 'triangle', drive: 0.07 },
-  { id: 'beats', name: 'BAY BEATS', tag: 'Street funk', tempo: 128, root: 196.0, minor: false, leadWave: 'square', drive: 0.05 },
-  { id: 'night', name: 'NIGHT DRIVE', tag: 'Slow cruise', tempo: 88, root: 174.61, minor: true, leadWave: 'sine', drive: 0.09 },
+  {
+    id: 'solara', name: 'SOLARA FM', tag: 'Sunset synth',
+    tempo: 112, root: 220.0, minor: true, leadWave: 'triangle', drive: 0.07,
+  },
+  {
+    id: 'beats', name: 'BAY BEATS', tag: 'Street funk',
+    tempo: 128, root: 196.0, minor: false, leadWave: 'square', drive: 0.05,
+  },
+  {
+    id: 'night', name: 'NIGHT DRIVE', tag: 'Slow cruise',
+    tempo: 88, root: 174.61, minor: true, leadWave: 'sine', drive: 0.09,
+  },
 ];
 
+// How much life the city spawns: moving traffic, roaming pedestrians, and
+// the per-block counts for parked cars, trees and sidewalk walkers.
 export const DENSITY = {
-  trafficCars: 120, pedestrians: 44, parkedPerBlockMin: 2, parkedPerBlockMax: 5,
-  treesPerBlockMin: 4, treesPerBlockMax: 9, pedsPerBlockMin: 5, pedsPerBlockMax: 8,
+  trafficCars: 120,
+  pedestrians: 44,
+  parkedPerBlockMin: 2,
+  parkedPerBlockMax: 5,
+  treesPerBlockMin: 4,
+  treesPerBlockMax: 9,
+  pedsPerBlockMin: 5,
+  pedsPerBlockMax: 8,
 };
 
+// Districts are rectangles in world space; the city picks building style and
+// the HUD picks the district name from the player's position.
 export const DISTRICTS = [
   { name: 'Marina', x0: 0, z0: 1800, x1: 1400, z1: 4600, tint: '#2e7f86' },
   { name: 'Old Town', x0: 1800, z0: 1800, x1: 3800, z1: 4200, tint: '#b98a3e' },
@@ -61,12 +150,26 @@ export const DISTRICTS = [
   { name: 'Bayside', x0: 4600, z0: 1200, x1: 6400, z1: 4600, tint: '#3e8f5a' },
 ];
 
+// Palette: ground, roads, sky at three times of day, HUD colours.
 export const PALETTE = {
-  grass: '#5d9b4a', sand: '#e3c98f', water: '#1f6f8b', road: '#33373d', roadLine: '#d8c95a',
-  sidewalk: '#9a938a', buildingRoof: '#8a6f5c', park: '#4e8f3e', plaza: '#b7ab93',
-  skyNoon: '#f7c873', skyDusk: '#e07b39', skyNight: '#0d1b33',
-  hudPanel: 'rgba(10,14,22,0.72)', hudText: '#f4f1e6', hudGold: '#f2c94c',
-  marker: '#ffd23f', policeBlue: '#3b6fe0', policeRed: '#e23b3b',
+  grass: '#5d9b4a',
+  sand: '#e3c98f',
+  water: '#1f6f8b',
+  road: '#33373d',
+  roadLine: '#d8c95a',
+  sidewalk: '#9a938a',
+  buildingRoof: '#8a6f5c',
+  park: '#4e8f3e',
+  plaza: '#b7ab93',
+  skyNoon: '#f7c873',
+  skyDusk: '#e07b39',
+  skyNight: '#0d1b33',
+  hudPanel: 'rgba(10,14,22,0.72)',
+  hudText: '#f4f1e6',
+  hudGold: '#f2c94c',
+  marker: '#ffd23f',
+  policeBlue: '#3b6fe0',
+  policeRed: '#e23b3b',
 };
 
 export const SAVE_KEY = 'solara-city.save.v2';
