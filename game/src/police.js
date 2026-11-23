@@ -95,13 +95,18 @@ export function updatePolice(S, dt) {
       driveCar(cop, -0.6, Math.sign(diff), false, dt);
     } else {
       // Match speed to the distance: full speed from far away, a crawl up
-      // close, and a stop on top of the player, so the cruiser arrives and
-      // stays there instead of blowing past and circling back.
-      const targetSpeed = clamp(d * 0.9, 0, cop.maxSpeed);
+      // close. Inside 45 pixels the cruiser parks on the player: hard
+      // brake, then stay stopped, so the busted timer can run instead of
+      // the cruiser orbiting the player at cruising speed.
       let throttle;
-      if (cop.speed < targetSpeed - 20) throttle = 1;
-      else if (cop.speed > targetSpeed + 40) throttle = -0.8;
-      else throttle = 0.3;
+      if (d < 45) {
+        throttle = cop.speed > 15 ? -1 : 0;
+      } else {
+        const targetSpeed = clamp(d * 0.9, 0, cop.maxSpeed);
+        if (cop.speed < targetSpeed - 20) throttle = 1;
+        else if (cop.speed > targetSpeed + 40) throttle = -0.8;
+        else throttle = 0.3;
+      }
       driveCar(cop, throttle, clamp(diff * 1.4, -1, 1), false, dt);
     }
     moveCar(S, cop, dt);
