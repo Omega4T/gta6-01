@@ -95,9 +95,9 @@ export function updatePolice(S, dt) {
       driveCar(cop, -0.6, Math.sign(diff), false, dt);
     } else {
       // Match speed to the distance: full speed from far away, a crawl up
-      // close, so the cruiser arrives on the player and stays there
-      // instead of blowing past at full speed and circling back.
-      const targetSpeed = clamp(d * 0.9, 50, cop.maxSpeed);
+      // close, and a stop on top of the player, so the cruiser arrives and
+      // stays there instead of blowing past and circling back.
+      const targetSpeed = clamp(d * 0.9, 0, cop.maxSpeed);
       let throttle;
       if (cop.speed < targetSpeed - 20) throttle = 1;
       else if (cop.speed > targetSpeed + 40) throttle = -0.8;
@@ -119,13 +119,13 @@ export function updatePolice(S, dt) {
       }
     }
     // Busted: a cruiser on top of the player on foot ends the run. The
-    // timer builds while the cop is in contact and drains when he loses
-    // the player, so repeated close passes add up to a catch.
+    // timer builds while the cop is in contact and drains slowly when he
+    // loses the player, so repeated close passes add up to a catch.
     if (p.onFoot && d < 34) {
       S.bustedTimer += dt;
       if (S.bustedTimer > 1.2) bustPlayer(S);
     } else {
-      S.bustedTimer = Math.max(0, S.bustedTimer - dt * 2);
+      S.bustedTimer = Math.max(0, S.bustedTimer - dt);
     }
     if (cop.hp <= 0) {
       cop.dead = true;
