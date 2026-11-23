@@ -11,7 +11,7 @@ import { makeCar, driveCar, moveCar, collideCars, enterCar, exitCar, addHeat, wa
 import { spawnTraffic, spawnPeds, updateTraffic, updatePeds, scatterPeds, nearestPed } from './crowd.js';
 import { updatePolice, wastePlayer } from './police.js';
 import { fireWeapon, updateBullets, updateEnemies, updatePickups, updateParticles, updateFloats, hurtPlayer } from './combat.js';
-import { startMission, updateMission, updateTaxi, startRace, raceStartNear, collectPackages, missionTarget, startTaxi } from './missions.js';
+import { startMission, updateMission, updateTaxi, updateRace, startRace, raceStartNear, collectPackages, missionTarget, startTaxi } from './missions.js';
 import { scatterPackages } from './missions.js';
 import { nearGarage, buyCar, retrieveCar, storeCurrentCar, garageLines } from './garage.js';
 import { drawGame, darkness } from './render.js';
@@ -59,8 +59,9 @@ function createState() {
     audio: null,
     input: null,
   };
-  // A sedan parked by the safehouse, the player's first ride.
-  const starter = makeCar('sedan', LANDMARKS.safehouse.x + 60, LANDMARKS.safehouse.y - 60, Math.PI / 2, 'parked');
+  // A sedan parked by the safehouse, the player's first ride, centred on the
+  // road so driving away does not clip the sidewalk pedestrians.
+  const starter = makeCar('sedan', LANDMARKS.safehouse.x, LANDMARKS.safehouse.y - 60, Math.PI / 2, 'parked');
   S.cars.push(starter);
   // The parked cars from the city layout join the world as stealable cars.
   for (const pc of city.parked) {
@@ -297,6 +298,10 @@ function update(S, dt) {
   updateParticles(S, dt);
   updateFloats(S, dt);
   updateMission(S, dt);
+  // A race started free-roam (F at the highway marker) is not a mission step,
+  // so it needs its own update here; the mission's race step only reads the
+  // result.
+  if (S.race && S.race.active) updateRace(S, dt);
   updateTaxi(S, dt);
   collectPackages(S);
 

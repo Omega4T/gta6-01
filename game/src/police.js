@@ -94,7 +94,8 @@ export function updatePolice(S, dt) {
     if (Math.abs(diff) > 2.2 && cop.speed > 40) {
       driveCar(cop, -0.6, Math.sign(diff), false, dt);
     } else {
-      const throttle = d > 60 ? 1 : 0.4;
+      // Close in: brake to a stop on the player so he can be caught.
+      const throttle = d > 60 ? 1 : d > 40 ? 0.4 : -0.6;
       driveCar(cop, throttle, clamp(diff * 1.4, -1, 1), false, dt);
     }
     moveCar(S, cop, dt);
@@ -109,8 +110,10 @@ export function updatePolice(S, dt) {
         cop.speed *= 0.6;
       }
     }
-    // Busted: a cruiser sitting on the player on foot ends the run.
-    if (p.onFoot && d < 34 && Math.abs(cop.speed) < 60) {
+    // Busted: a cruiser sitting on the player on foot ends the run. The
+    // timer runs whenever the cop is on top of the player, whatever its
+    // speed, so a caught player is actually caught.
+    if (p.onFoot && d < 34) {
       S.bustedTimer += dt;
       if (S.bustedTimer > 1.2) bustPlayer(S);
     } else {

@@ -30,11 +30,26 @@ export function isNight(S) {
   return darkness(S) > 0.3;
 }
 
+// The world rectangle the camera can see, with a margin: everything drawn
+// outside it is skipped, which keeps the frame rate up on a big city.
+export function viewRect(S) {
+  const W = S.canvas.width, H = S.canvas.height;
+  const hw = W / 2 / S.cam.zoom + 140, hh = H / 2 / S.cam.zoom + 140;
+  return { x0: S.cam.x - hw, y0: S.cam.y - hh, x1: S.cam.x + hw, y1: S.cam.y + hh };
+}
+
+function inView(S, x, y, pad) {
+  const v = S.view;
+  const p = pad || 0;
+  return x > v.x0 - p && x < v.x1 + p && y > v.y0 - p && y < v.y1 + p;
+}
+
 // Draw the whole frame: world in camera space, then HUD in screen space.
 export function drawGame(ctx, S) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
   ctx.clearRect(0, 0, W, H);
   const cam = S.cam;
+  S.view = viewRect(S);
   const shakeX = (Math.random() - 0.5) * cam.shake;
   const shakeY = (Math.random() - 0.5) * cam.shake;
   ctx.save();
@@ -102,6 +117,7 @@ function drawBlocks(ctx, S) {
     }
   }
   for (const bd of S.city.buildings) {
+    if (!inView(S, bd.x, bd.y, Math.max(bd.w, bd.h))) continue;
     // Shadow offset by height, then the roof with its border and detail.
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fillRect(bd.x - bd.w / 2 + bd.tall * 4, bd.y - bd.h / 2 + bd.tall * 5, bd.w, bd.h);
@@ -146,18 +162,28 @@ function drawRoads(ctx, S) {
     ctx.fillRect(c - half, 0, CFG.roadWidth, CFG.worldSize);
     ctx.fillRect(0, c - half, CFG.worldSize, CFG.roadWidth);
   }
-  // Centre dashes.
+  // Centre dashes, only along the roads the camera sees.
   ctx.fillStyle = CFG.colors.roadLine;
+  const v = S.view;
   for (const c of ROAD_CENTERS) {
-    for (let d = 0; d < CFG.worldSize; d += 46) {
-      ctx.fillRect(c - 2, d, 4, 22);
-      ctx.fillRect(d, c - 2, 22, 4);
+    // Vertical road at x = c: dashes run down it.
+    if (c > v.x0 - 80 && c < v.x1 + 80) {
+      for (let d = Math.max(0, Math.floor(v.y0 / 46) * 46); d < v.y1; d += 46) {
+        ctx.fillRect(c - 2, d, 4, 22);
+      }
+    }
+    // Horizontal road at y = c: dashes run across it.
+    if (c > v.y0 - 80 && c < v.y1 + 80) {
+      for (let d = Math.max(0, Math.floor(v.x0 / 46) * 46); d < v.x1; d += 46) {
+        ctx.fillRect(d, c - 2, 22, 4);
+      }
     }
   }
-  // Crosswalks at every intersection.
+  // Crosswalks at every intersection in view.
   ctx.fillStyle = 'rgba(255,255,255,0.75)';
   for (const rx of ROAD_CENTERS) {
     for (const ry of ROAD_CENTERS) {
+      if (!inView(S, rx, ry, 120)) continue;
       for (let i = -2; i <= 2; i++) {
         ctx.fillRect(rx + i * 16 - 5, ry - half - 12, 10, 12);
         ctx.fillRect(rx + i * 16 - 5, ry + half, 10, 12);
@@ -166,6 +192,7 @@ function drawRoads(ctx, S) {
   }
   // Traffic lights: a pole and the current colour.
   for (const light of S.city.lights) {
+    if (!inView(S, light.x, light.y, 100)) continue;
     ctx.fillStyle = '#222';
     ctx.fillRect(light.x + half + 8, light.y - half - 8, 4, 16);
     const green = lightIsGreen(S, light, true);
@@ -179,6 +206,7 @@ function drawRoads(ctx, S) {
 // Trees, props, parked cars and the garage lot.
 function drawCityProps(ctx, S) {
   for (const t of S.city.trees) {
+    if (!inView(S, t.x, t.y, 30)) continue;
     ctx.fillStyle = '#5a4a2a';
     ctx.fillRect(t.x - 2, t.y - 2, 4, 8);
     ctx.fillStyle = t.palm ? '#3fae6a' : '#2f7a3a';
@@ -198,6 +226,7 @@ function drawCityProps(ctx, S) {
     }
   }
   for (const pr of S.city.props) {
+    if (!inView(S, pr.x, pr.y, 60)) continue;
     if (pr.kind === 'bench') {
       ctx.fillStyle = '#7a5a3a';
       ctx.fillRect(pr.x - 16, pr.y - 5, 32, 10);
@@ -232,6 +261,7 @@ function drawCityProps(ctx, S) {
     }
   }
   for (const car of S.city.parked) {
+    if (!inView(S, car.x, car.y, 60)) continue;
     drawCarBody(ctx, car.x, car.y, car.ang, car.type, car.color || '#c8ccd4', false, S);
   }
   // The garage lot: a green rectangle with a G.
@@ -303,6 +333,7 @@ function drawCarBody(ctx, x, y, ang, type, color, isPlayer, S) {
 function drawCars(ctx, S) {
   for (const car of S.cars) {
     if (car.dead) continue;
+    if (!inView(S, car.x, car.y, 120)) continue;
     drawCarBody(ctx, car.x, car.y, car.ang, car.type, car.color, car.driver === 'player', S);
     if (car.hp < 55) {
       ctx.fillStyle = 'rgba(90,90,90,0.6)';
@@ -315,6 +346,7 @@ function drawCars(ctx, S) {
 
 function drawPeds(ctx, S) {
   for (const ped of S.peds) {
+    if (!inView(S, ped.x, ped.y, 30)) continue;
     const bob = Math.sin(ped.walkPhase) * 2;
     ctx.fillStyle = ped.shirt;
     ctx.beginPath();
@@ -627,7 +659,7 @@ function drawMenu(ctx, S) {
   ctx.font = '15px sans-serif';
   const lines = [
     'WASD walk / drive · Mouse aim · Click shoot · E enter car · Shift run / handbrake',
-    '1-4 weapons · R radio · T taxi · G garage · M call Marisol / mute · P pause',
+    '1-4 weapons · R radio · T taxi · G garage · M call Marisol · 0 mute · P pause',
     'Eight jobs from Marisol Vega · Taxi fares · Street races · 12 hidden packages',
     'Steal cars, lose the cops, buy the garage collection — and stay out of jail.',
   ];

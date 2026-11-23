@@ -170,7 +170,6 @@ export function updateMission(S, dt) {
       }
       break;
     case 'race':
-      updateRace(S, dt);
       if (S.race && S.race.done) advanceStep(S);
       if (S.race && S.race.failed) {
         S.race = null;
