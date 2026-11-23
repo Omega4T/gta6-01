@@ -8,32 +8,43 @@ import { dist2 } from './random.js';
 import { SPOTS } from './city.js';
 import { spawnVehicle, enterCar, playerCar } from './vehicles.js';
 
+// The six models the garage sells; the starter sedan and police cruisers are
+// never for sale (the sedan is free to steal, the cruiser is not yours).
 export const BUYABLE = ['sports', 'muscle', 'truck', 'beach', 'taxi', 'van'];
 
+// Is the player close enough to the garage lot to use it?
 export function nearGarage(game) {
-  const s = game.state;
-  return dist2(s.player.x, s.player.y, SPOTS.garage.x, SPOTS.garage.y) < 130 * 130;
+  const st = game.state;
+  const dx = st.player.x - SPOTS.garage.x;
+  const dy = st.player.y - SPOTS.garage.y;
+  return dx * dx + dy * dy < 130 * 130;
 }
 
+// One menu row per buyable model: take it out if owned, buy it if not.
 export function garageEntries(game) {
-  const s = game.state;
+  const st = game.state;
   const entries = [];
   for (const type of BUYABLE) {
     const def = CAR_TYPES[type];
-    const owned = s.ownedCars.some((c) => c.type === type);
+    const owned = st.ownedCars.some((c) => c.type === type);
+    const verb = owned ? 'TAKE OUT  ' : 'BUY  ';
+    const price = '$' + def.price.toLocaleString('en-US');
+    const suffix = owned ? ' (owned)' : '';
     entries.push({
-      kind: owned ? 'take' : 'buy', type,
-      label: (owned ? 'TAKE OUT  ' : 'BUY  ') + def.name + '  —  $' + def.price.toLocaleString('en-US') + (owned ? ' (owned)' : ''),
+      kind: owned ? 'take' : 'buy',
+      type,
+      label: verb + def.name + '  —  ' + price + suffix,
       price: def.price,
     });
   }
   return entries;
 }
 
+// The G key: close the menu, store the car being driven, or open the menu.
 export function garageAction(game) {
-  const s = game.state;
-  if (s.screen === 'garage') {
-    s.screen = 'play';
+  const st = game.state;
+  if (st.screen === 'garage') {
+    st.screen = 'play';
     return;
   }
   if (!nearGarage(game)) {
@@ -42,7 +53,7 @@ export function garageAction(game) {
   }
   const car = playerCar(game);
   if (car) {
-    if (s.ownedCars.length >= GARAGE_SLOTS) {
+    if (st.ownedCars.length >= GARAGE_SLOTS) {
       game.say('Garage full (' + GARAGE_SLOTS + ' slots). Take a car out first.', 3);
       return;
     }
@@ -50,50 +61,52 @@ export function garageAction(game) {
       game.say('The cops want their cruiser back. Nice try.', 3);
       return;
     }
-    s.ownedCars.push({ type: car.type, color: car.color });
+    st.ownedCars.push({ type: car.type, color: car.color });
     car.dead = true;
-    s.playerCar = null;
-    s.player.x = SPOTS.garage.x;
-    s.player.y = SPOTS.garage.y + 60;
+    st.playerCar = null;
+    st.player.x = SPOTS.garage.x;
+    st.player.y = SPOTS.garage.y + 60;
     game.save();
     game.say(CAR_TYPES[car.type].name + ' stored in the garage.', 3);
     if (game.audio) game.audio.buy();
     return;
   }
-  s.screen = 'garage';
-  s.garageSelected = 0;
+  st.screen = 'garage';
+  st.garageSelected = 0;
 }
 
+// Q in the menu: move the highlight to the next row.
 export function garageCycle(game) {
-  const s = game.state;
+  const st = game.state;
   const entries = garageEntries(game);
   if (entries.length === 0) return;
-  s.garageSelected = (s.garageSelected + 1) % entries.length;
+  st.garageSelected = (st.garageSelected + 1) % entries.length;
   if (game.audio) game.audio.click();
 }
 
+// Space in the menu: take the car out, or buy it if it is not owned yet.
 export function garageConfirm(game) {
-  const s = game.state;
+  const st = game.state;
   const entries = garageEntries(game);
-  const e = entries[s.garageSelected];
+  const e = entries[st.garageSelected];
   if (!e) return;
   if (e.kind === 'take') {
     const car = spawnVehicle(game, e.type, SPOTS.garage.x + 40, SPOTS.garage.y + 40, -Math.PI / 2, { parked: false });
-    s.screen = 'play';
+    st.screen = 'play';
     enterCar(game, car);
     game.say('Took out the ' + CAR_TYPES[e.type].name + '.', 3);
     return;
   }
-  if (s.cash < e.price) {
+  if (st.cash < e.price) {
     game.say('Not enough cash for the ' + CAR_TYPES[e.type].name + ' ($' + e.price + ').', 3);
     return;
   }
-  if (s.ownedCars.length >= GARAGE_SLOTS) {
+  if (st.ownedCars.length >= GARAGE_SLOTS) {
     game.say('Garage full (' + GARAGE_SLOTS + ' slots).', 3);
     return;
   }
-  s.cash -= e.price;
-  s.ownedCars.push({ type: e.type, color: CAR_TYPES[e.type].color });
+  st.cash -= e.price;
+  st.ownedCars.push({ type: e.type, color: CAR_TYPES[e.type].color });
   game.save();
   game.say('Bought the ' + CAR_TYPES[e.type].name + ' — it is in your garage.', 4);
   if (game.audio) game.audio.buy();
