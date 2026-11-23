@@ -33,7 +33,9 @@ function createState() {
     shotName: null,
     player: {
       x: LANDMARKS.safehouse.x, y: LANDMARKS.safehouse.y, ang: 0,
-      hp: CFG.player.maxHealth, armor: 0, cash: CFG.player.startCash,
+      hp: CFG.player.maxHealth, maxHealth: CFG.player.maxHealth,
+      armor: 0, maxArmor: CFG.player.maxArmor,
+      cash: CFG.player.startCash,
       rep: 0, heat: 0, weapon: 'pistol',
       ammo: { pistol: 120, shotgun: 36, smg: 90 },
       onFoot: true, inCar: null,
