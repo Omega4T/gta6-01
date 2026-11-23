@@ -94,9 +94,14 @@ export function updatePolice(S, dt) {
     if (Math.abs(diff) > 2.2 && cop.speed > 40) {
       driveCar(cop, -0.6, Math.sign(diff), false, dt);
     } else {
-      // Close in: ease off the throttle so the cruiser coasts to a stop on
-      // the player instead of reversing away from him.
-      const throttle = d > 60 ? 1 : d > 40 ? 0.4 : 0;
+      // Match speed to the distance: full speed from far away, a crawl up
+      // close, so the cruiser arrives on the player and stays there
+      // instead of blowing past at full speed and circling back.
+      const targetSpeed = clamp(d * 0.9, 50, cop.maxSpeed);
+      let throttle;
+      if (cop.speed < targetSpeed - 20) throttle = 1;
+      else if (cop.speed > targetSpeed + 40) throttle = -0.8;
+      else throttle = 0.3;
       driveCar(cop, throttle, clamp(diff * 1.4, -1, 1), false, dt);
     }
     moveCar(S, cop, dt);
