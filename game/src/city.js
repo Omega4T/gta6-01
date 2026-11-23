@@ -133,10 +133,15 @@ export function createCity(seed) {
 
   const pickupKinds = ['health', 'armour', 'pistol', 'shotgun', 'smg'];
   for (let i = 0; i < 30; i++) {
-    pickups.push({ x: rng.range(400, size - 400), y: rng.range(400, size - 400), kind: pickupKinds[i % pickupKinds.length], taken: false });
+    // Keep pickups off rooftops: resample until the spot is walkable.
+    let x, y, tries = 0;
+    do { x = rng.range(400, size - 400); y = rng.range(400, size - 400); tries++; } while (collidesBuilding(x, y, 20) && tries < 20);
+    pickups.push({ x, y, kind: pickupKinds[i % pickupKinds.length], taken: false });
   }
   for (let i = 0; i < 12; i++) {
-    packages.push({ x: rng.range(300, size - 300), y: rng.range(300, size - 300), found: false });
+    let x, y, tries = 0;
+    do { x = rng.range(300, size - 300); y = rng.range(300, size - 300); tries++; } while (collidesBuilding(x, y, 20) && tries < 20);
+    packages.push({ x, y, found: false });
   }
 
   function nearestRoadX(x) { let best = roadsX[0], bd = 1e18; for (const r of roadsX) { const d = Math.abs(r - x); if (d < bd) { bd = d; best = r; } } return best; }
