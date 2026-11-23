@@ -232,10 +232,16 @@ export function createGame(city, seed, audio) {
       const nx = car.x + Math.cos(car.angle) * car.speed * dt;
       const ny = car.y + Math.sin(car.angle) * car.speed * dt;
       const hit = city.collidesBuilding(nx, ny, 22);
+      car.crashCd = Math.max(0, (car.crashCd || 0) - dt);
       if (hit) {
-        car.speed *= -0.25; car.hp -= Math.abs(car.speed) * 0.04 + 2;
-        burst(nx, ny, '#c9c9c9', 6, 140);
-        if (audio && Math.abs(car.speed) > 100) audio.crash();
+        const impact = Math.abs(car.speed);
+        car.speed *= -0.25;
+        if (car.crashCd <= 0 && impact > 60) {
+          car.hp -= Math.min(10, 2 + impact * 0.015);
+          car.crashCd = 0.6;
+          burst(nx, ny, '#c9c9c9', 6, 140);
+          if (audio) audio.crash();
+        }
       } else { car.x = nx; car.y = ny; }
       car.x = clamp(car.x, 60, WORLD.size - 60); car.y = clamp(car.y, 60, WORLD.size - 60);
       if (car.speed > 60 && handbrake && rng.chance(0.3)) {
@@ -382,7 +388,7 @@ export function createGame(city, seed, audio) {
       const d = Math.sqrt(dist2(c.x, c.y, p.x, p.y));
       const pcar = playerCar();
       if (pcar && d < 52) {
-        pcar.hp -= POLICE.ramDamage * dt * 10; c.speed *= 0.92;
+        pcar.hp -= POLICE.ramDamage * dt; c.speed *= 0.92;
         pcar.x += Math.cos(a) * 30 * dt; pcar.y += Math.sin(a) * 30 * dt;
         if (rng.chance(0.05)) burst(pcar.x, pcar.y, '#c9c9c9', 4, 100);
       }

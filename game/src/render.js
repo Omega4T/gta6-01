@@ -47,6 +47,8 @@ export function createRenderer(canvas) {
     if (c.type === 'police') {
       ctx.fillStyle = '#f4f1e6'; ctx.fillRect(-len / 2 + 6, -wid / 2, len - 12, wid);
       ctx.fillStyle = '#222'; ctx.font = 'bold 9px ' + FONT; ctx.textAlign = 'center'; ctx.fillText('POLICE', 0, 3);
+      ctx.fillStyle = '#e23b3b'; ctx.fillRect(-8, -wid / 2 - 3, 7, 4);
+      ctx.fillStyle = '#3b6fe0'; ctx.fillRect(1, -wid / 2 - 3, 7, 4);
     }
     if (c.type === 'taxi') {
       ctx.fillStyle = '#222'; ctx.fillRect(-len / 2 + 4, -wid / 2 + 2, 12, 4); ctx.fillRect(-len / 2 + 4, wid / 2 - 6, 12, 4);
@@ -328,6 +330,7 @@ export function createRenderer(canvas) {
 
   return {
     resize,
+    snapTo(x, y) { camX = x; camY = y; },
     worldToScreen, screenToWorld,
     get viewW() { return viewW; }, get viewH() { return viewH; },
     draw(city, game, time) {

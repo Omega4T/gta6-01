@@ -35,6 +35,7 @@ function runShot(name) {
   game.reset(false);
   game.state.screen = 'play';
   stageShot(name, city, game);
+  renderer.snapTo(game.state.player.x, game.state.player.y);
   let painted = 0;
   function paint() {
     renderer.draw(city, game, performance.now() / 1000);
