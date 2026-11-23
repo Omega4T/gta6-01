@@ -1,6 +1,7 @@
-// Seeded random numbers so the city is identical on every run with the same seed.
-// Mulberry32: small, fast, deterministic. One stream per purpose keeps layout stable
-// even when gameplay draws extra numbers later.
+// Deterministic random numbers and small math helpers.
+// The city layout, traffic and missions all draw from seeded streams, so the
+// same seed always builds the same Solara City. Gameplay draws never touch the
+// layout stream: each purpose gets its own forked stream.
 export function createRandom(seed) {
   let a = seed >>> 0;
   if (a === 0) a = 0x9e3779b9;
@@ -22,11 +23,15 @@ export function createRandom(seed) {
 
 export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 export function lerp(a, b, t) { return a + (b - a) * t; }
-export function dist2(ax, ay, bx, by) { const dx = bx - ax, dy = by - ay; return dx * dx + dy * dy; }
+export function dist2(ax, ay, bx, by) { const dx = bx - ax; const dy = by - ay; return dx * dx + dy * dy; }
 export function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
 export function angleDiff(a, b) {
   let d = b - a;
   while (d > Math.PI) d -= Math.PI * 2;
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
+}
+export function turnToward(angle, target, maxStep) {
+  const d = angleDiff(angle, target);
+  return angle + clamp(d, -maxStep, maxStep);
 }

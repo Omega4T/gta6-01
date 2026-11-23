@@ -1,5 +1,7 @@
-// Keyboard + mouse input. Keys are tracked by code so layouts do not matter;
-// the mouse aim is kept in screen space and converted by the renderer each frame.
+// Keyboard and mouse input. Keys are tracked by code so any keyboard layout
+// works; the mouse aim stays in screen pixels and the renderer converts it to
+// world coordinates every frame. Actions are edge-triggered: takeActions()
+// returns the bits pressed since the last call and then clears them.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_ENTER = 4;
@@ -7,6 +9,8 @@ export const ACTION_HANDBRAKE = 8;
 export const ACTION_MUTE = 16;
 export const ACTION_PHOTO = 32;
 export const ACTION_WEAPON_NEXT = 64;
+export const ACTION_RADIO = 128;
+export const ACTION_GARAGE = 256;
 
 const KEY_ACTIONS = {
   Space: ACTION_CONFIRM, Enter: ACTION_CONFIRM,
@@ -14,6 +18,7 @@ const KEY_ACTIONS = {
   KeyE: ACTION_ENTER, KeyF: ACTION_ENTER,
   ShiftLeft: ACTION_HANDBRAKE, ShiftRight: ACTION_HANDBRAKE,
   KeyM: ACTION_MUTE, KeyH: ACTION_PHOTO, KeyQ: ACTION_WEAPON_NEXT,
+  KeyR: ACTION_RADIO, KeyG: ACTION_GARAGE,
 };
 
 export function createInput(canvas) {
@@ -33,7 +38,8 @@ export function createInput(canvas) {
   function onKeyUp(e) { keys.delete(e.code); }
   function onMove(e) {
     const r = canvas.getBoundingClientRect();
-    mouseX = e.clientX - r.left; mouseY = e.clientY - r.top;
+    mouseX = e.clientX - r.left;
+    mouseY = e.clientY - r.top;
   }
   function onDown(e) { onMove(e); mouseDown = true; mouseClicked = true; }
   function onUp() { mouseDown = false; }
@@ -47,7 +53,6 @@ export function createInput(canvas) {
   window.addEventListener('blur', onBlur);
 
   return {
-    // WASD / arrows as a normalised drive/walk vector.
     axis() {
       let x = 0, y = 0;
       if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1;
