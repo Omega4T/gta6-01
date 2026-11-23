@@ -27,6 +27,8 @@ const audio = createAudio();
 const game = createGame(city, seed, audio);
 const renderer = createRenderer(canvas);
 const input = createInput(canvas);
+// Debug handle for playtesting (and nothing else): the page's own state.
+window.__solara = { game, city, renderer };
 
 function announce(message) { status.textContent = message; }
 
