@@ -1,41 +1,30 @@
-// Solara City v2.1 — the make.fun gta6-01 entry program, Node 22, stdlib only.
-//
-// The game itself is plain static files under game/: index.html plus ES
-// modules, no libraries, no network at runtime. This file is the handover
-// step between the repository and the grader: it copies game/ and
-// screenshots/ into the output directory and writes dossier.json there,
-// using the vendored make.fun library. The dossier is the summary the judge
-// reads, so the caps below match the scorer's own limits exactly — a run
-// here refuses the same things a run there would refuse.
-//
-// Local check, standing in for the grader's /output:
-//   MAKEFUN_OUTPUT_DIR=/tmp/out1 node main.ts
-// To play locally first, run `node serve.ts` and open http://localhost:8080.
+// Solara City's entry program (Node 22, standard library only): it hands the
+// game in by copying game/ and screenshots/ from beside this file into the
+// output directory and writing /output/dossier.json with the kit's vendored
+// library, the summary the judge reads. Run it locally with:
+//   MAKEFUN_OUTPUT_DIR=/tmp/out node main.ts
+// The grader runs it twice and requires both runs to write identical bytes.
+
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const rootDir = fileURLToPath(new URL('.', import.meta.url));
-const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function copyTree(from, to) {
-  mkdirSync(to, { recursive: true });
-  cpSync(from, to, { recursive: true });
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) {
+  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 }
 
-copyTree(join(rootDir, 'game'), join(outputDir, 'game'));
-
-const shotsDir = join(rootDir, 'screenshots');
-if (existsSync(shotsDir)) {
-  copyTree(shotsDir, join(outputDir, 'screenshots'));
-} else {
-  mkdirSync(join(outputDir, 'screenshots'), { recursive: true });
-}
-
+// The scorer's caps from the kit: only the text cap shapes the dossier bytes;
+// the rest refuse an entry the scorer would refuse anyway.
 writeFileSync(
-  join(outputDir, 'dossier.json'),
-  buildDossier(outputDir, {
+  join(out, 'dossier.json'),
+  buildDossier(out, {
     text_max_bytes: 163840,
     screenshots: { max: 4, max_bytes: 262144 },
     game_max_files: 993,

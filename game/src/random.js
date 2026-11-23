@@ -1,68 +1,51 @@
-// Seeded random numbers plus the tiny angle and distance helpers the whole
-// game shares. The city, the traffic and the missions all draw from streams
-// forked off one seed, so the same seed always builds the same Solara City.
-// Gameplay rolls never touch the layout stream: every purpose gets a fork.
-export function createRandom(seed) {
-  let state = seed >>> 0;
-  if (state === 0) state = 0x9e3779b9;
-  function next() {
-    state |= 0;
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+// Seeded random numbers for Solara City: one deterministic stream drives the
+// whole city layout, so every run of the game builds the same streets.
+export function makeRng(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  }
-  return {
-    next,
-    // Whole number in [min, max], both ends included.
-    int(min, max) {
-      return min + Math.floor(next() * (max - min + 1));
-    },
-    // Float in [min, max).
-    range(min, max) {
-      return min + next() * (max - min);
-    },
-    // One entry out of a list.
-    pick(list) {
-      return list[Math.floor(next() * list.length)];
-    },
-    // True with probability p.
-    chance(p) {
-      return next() < p;
-    },
-    // A fresh stream for one purpose, derived from this seed and a salt.
-    fork(salt) {
-      return createRandom((seed ^ Math.imul(salt, 2654435761)) >>> 0);
-    },
-    // Roll a whole number like a die with `sides` faces, 0-based.
-    die(sides) {
-      return Math.floor(next() * sides);
-    },
   };
 }
 
-export function clamp(v, lo, hi) {
-  if (v < lo) return lo;
-  if (v > hi) return hi;
-  return v;
+// A number between low and high, from the given stream.
+export function rand(rng, low, high) {
+  return low + rng() * (high - low);
 }
 
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
+// A whole number between low and high, inclusive.
+export function randi(rng, low, high) {
+  return low + Math.floor(rng() * (high - low + 1));
 }
 
-// Squared distance: cheaper than a square root, enough for range checks.
-export function dist2(ax, ay, bx, by) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  return dx * dx + dy * dy;
+// One element of an array, picked by the stream.
+export function pick(rng, list) {
+  return list[Math.floor(rng() * list.length)];
 }
 
-export function angleTo(ax, ay, bx, by) {
-  return Math.atan2(by - ay, bx - ax);
+// True with the given probability, from the stream.
+export function chance(rng, p) {
+  return rng() < p;
 }
 
-// Shortest signed turn from angle a to angle b, in (-PI, PI].
+// A shuffled copy of an array, using the stream.
+export function shuffle(rng, list) {
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = out[i]; out[i] = out[j]; out[j] = tmp;
+  }
+  return out;
+}
+
+// Clamp a value into a range.
+export function clamp(v, low, high) {
+  return v < low ? low : v > high ? high : v;
+}
+
+// Shortest signed angle from a to b, in radians.
 export function angleDiff(a, b) {
   let d = b - a;
   while (d > Math.PI) d -= Math.PI * 2;
@@ -70,8 +53,7 @@ export function angleDiff(a, b) {
   return d;
 }
 
-// Move `angle` toward `target` by at most maxStep radians.
-export function turnToward(angle, target, maxStep) {
-  const d = angleDiff(angle, target);
-  return angle + clamp(d, -maxStep, maxStep);
+// Distance between two points.
+export function dist(x1, y1, x2, y2) {
+  return Math.hypot(x2 - x1, y2 - y1);
 }

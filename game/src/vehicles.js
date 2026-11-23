@@ -1,227 +1,155 @@
-// Vehicles: spawning, player driving physics, and traffic.
-// A car is a plain object on the game state; this file owns everything that
-// moves one. Player driving is arcade: accelerate, brake, steer harder with
-// speed, handbrake for drift. Traffic cars follow the nearest road line,
-// stop at red lights, slow for the car ahead, and wrap around the map edges.
-import { CAR_TYPES, POLICE, WORLD } from './config.js';
-import { clamp, dist2, angleTo } from './random.js';
+// Cars: physics, damage and stealing. A car is a circle with a heading, a
+// speed and a type; the player, traffic and the police all drive the same
+// bodies, so a stolen cruiser handles like a cruiser.
 
-let nextCarId = 1;
+import { CFG } from './config.js';
+import { clamp, angleDiff } from './random.js';
+import { resolveBuildingCollision } from './city.js';
 
-export function resetCarIds() {
-  nextCarId = 1;
-}
+let carId = 1;
 
-export function spawnVehicle(game, type, x, y, angle, opts) {
-  const o = opts || {};
-  const def = CAR_TYPES[type];
-  const car = {
-    id: nextCarId++,
-    type,
-    x,
-    y,
-    angle,
-    speed: 0,
-    hp: def.hp,
-    maxHp: def.hp,
-    color: def.color,
-    parked: !!o.parked,
-    police: !!o.police,
-    traffic: !o.parked && !o.police,
-    dir: game.rng.pick([1, -1]),
-    axis: game.rng.chance(0.5) ? 'x' : 'z',
-    smoke: 0,
-    dead: false,
-    honk: 0,
-    flee: 0,
-    crashCd: 0,
-    roadblock: !!o.roadblock,
+export function makeCar(type, x, y, ang, driver) {
+  const spec = CFG.carTypes[type] || CFG.carTypes.sedan;
+  return {
+    id: carId++,
+    type, name: spec.name,
+    x, y, ang: ang || 0, speed: 0,
+    maxSpeed: spec.maxSpeed, accel: spec.accel, grip: spec.grip,
+    color: spec.color,
+    hp: 100, driver: driver || 'parked',
+    w: type === 'truck' || type === 'van' ? 52 : 46,
+    h: type === 'truck' || type === 'van' ? 24 : 22,
+    radius: 20,
+    smoke: 0, dead: false, honk: 0,
+    steer: 0, throttle: 0,
   };
-  game.state.cars.push(car);
-  return car;
 }
 
-export function carById(game, id) {
-  return game.state.cars.find((c) => c.id === id) || null;
+// Drive one car for a frame. throttle -1..1, steer -1..1, handbrake true/false.
+export function driveCar(car, throttle, steer, handbrake, dt) {
+  const grip = handbrake ? car.grip * 0.45 : car.grip;
+  if (throttle > 0) car.speed += car.accel * throttle * dt;
+  else if (throttle < 0) car.speed += car.accel * throttle * 0.7 * dt;
+  else car.speed -= Math.sign(car.speed) * 140 * dt;
+  if (Math.abs(car.speed) < 8 && throttle === 0) car.speed = 0;
+  car.speed = clamp(car.speed, -car.maxSpeed * 0.4, car.maxSpeed);
+  const turn = steer * grip * 0.55 * dt * Math.min(1, Math.abs(car.speed) / 120 + 0.25);
+  car.ang += turn * Math.sign(car.speed || 1);
+  car.x += Math.cos(car.ang) * car.speed * dt;
+  car.y += Math.sin(car.ang) * car.speed * dt;
+  if (handbrake && Math.abs(car.speed) > 150) {
+    car.ang += steer * 0.9 * dt * Math.sign(car.speed);
+  }
 }
 
-export function playerCar(game) {
-  const st = game.state;
-  return st.playerCar ? carById(game, st.playerCar) : null;
+// Move the car and resolve building and world collisions.
+export function moveCar(S, car, dt) {
+  const hit = resolveBuildingCollision(S.city.buildings, car, car.radius);
+  if (hit && Math.abs(car.speed) > 120) {
+    damageCar(S, car, Math.abs(car.speed) * 0.06);
+    car.speed *= 0.45;
+  }
+  return hit;
 }
 
-// Closest non-police car to the player within maxD, for entering.
-export function nearestCar(game, maxD) {
-  const st = game.state;
-  let best = null;
-  let bd = maxD * maxD;
-  for (const c of st.cars) {
-    if (c.dead || c.police) continue;
-    const d = dist2(st.player.x, st.player.y, c.x, c.y);
-    if (d < bd) {
-      bd = d;
-      best = c;
-    }
+// Two cars bumping: push apart and trade a little damage and speed.
+export function collideCars(S, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const d = Math.hypot(dx, dy);
+  const min = a.radius + b.radius - 4;
+  if (d >= min || d < 0.01) return false;
+  const nx = dx / d, ny = dy / d;
+  const push = (min - d) / 2;
+  a.x -= nx * push; a.y -= ny * push;
+  b.x += nx * push; b.y += ny * push;
+  const rel = Math.abs(a.speed - b.speed);
+  if (rel > 140) {
+    damageCar(S, a, rel * 0.03);
+    damageCar(S, b, rel * 0.03);
+    const tmp = a.speed; a.speed = b.speed * 0.6; b.speed = tmp * 0.6;
+  }
+  return true;
+}
+
+// Hurt a car; at zero health it explodes and is removed.
+export function damageCar(S, car, amount) {
+  if (car.dead) return;
+  car.hp -= amount;
+  car.smoke = Math.max(car.smoke, amount * 0.02);
+  if (car.hp <= 0) {
+    car.dead = true;
+    explodeCar(S, car);
+  }
+}
+
+// An explosion: particles, sound, heat if the player caused it.
+export function explodeCar(S, car) {
+  S.audio.boom();
+  for (let i = 0; i < 26; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 60 + Math.random() * 260;
+    S.parts.push({ x: car.x, y: car.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.7 + Math.random() * 0.5, max: 1.2, size: 3 + Math.random() * 5, color: Math.random() < 0.5 ? '#ff9a2a' : '#5a5a5a', kind: 'fire' });
+  }
+  S.parts.push({ x: car.x, y: car.y, vx: 0, vy: 0, life: 1.4, max: 1.4, size: 70, color: '#ff7a1a', kind: 'flash' });
+  S.cam.shake = Math.max(S.cam.shake, 10);
+  if (car.driver === 'player') {
+    S.player.hp -= 25;
+  }
+}
+
+// The nearest car the player could steal, within reach and not wrecked.
+export function nearestStealableCar(S) {
+  const p = S.player;
+  let best = null, bestD = 78;
+  for (const car of S.cars) {
+    if (car.dead || car.driver === 'player') continue;
+    const d = Math.hypot(car.x - p.x, car.y - p.y);
+    if (d < bestD) { bestD = d; best = car; }
   }
   return best;
 }
 
-export function enterCar(game, car) {
-  const st = game.state;
-  st.playerCar = car.id;
-  car.parked = false;
-  car.traffic = false;
-  st.stats.carsStolen++;
-  if (car.police) game.addWanted(1);
-  game.say('Driving ' + CAR_TYPES[car.type].name + ' — E to exit, Shift = handbrake', 3);
-  if (game.audio) game.audio.click();
+// Step into the nearest car. Stealing in front of a cop adds heat.
+export function enterCar(S) {
+  const car = nearestStealableCar(S);
+  if (!car) return false;
+  const wasParked = car.driver === 'parked' || car.driver === 'traffic';
+  car.driver = 'player';
+  S.player.inCar = car;
+  S.player.onFoot = false;
+  S.player.x = car.x; S.player.y = car.y;
+  if (wasParked) {
+    S.stats.stolen++;
+    addHeat(S, CFG.police.heatPerTheft * 0.5);
+  }
+  return true;
 }
 
-export function exitCar(game) {
-  const st = game.state;
-  const car = playerCar(game);
+// Step out beside the car, on foot again.
+export function exitCar(S) {
+  const car = S.player.inCar;
   if (!car) return;
-  st.playerCar = null;
-  const a = car.angle + Math.PI / 2;
-  st.player.x = car.x + Math.cos(a) * 34;
-  st.player.y = car.y + Math.sin(a) * 34;
-  st.player.angle = car.angle;
+  car.driver = 'parked';
   car.speed = 0;
+  const side = car.ang + Math.PI / 2;
+  S.player.x = car.x + Math.cos(side) * 34;
+  S.player.y = car.y + Math.sin(side) * 34;
+  S.player.onFoot = true;
+  S.player.inCar = null;
 }
 
-export function damageCar(game, car, amount) {
-  car.hp -= amount;
-  if (car.hp <= 0 && !car.dead) {
-    car.dead = true;
-    game.explode(car.x, car.y);
-  }
+// Add wanted heat; the police module turns heat into stars.
+export function addHeat(S, amount) {
+  S.player.heat = Math.min(8, (S.player.heat || 0) + amount);
 }
 
-// Player driving: arcade physics with steering that bites harder at speed.
-function drivePlayerCar(game, dt, input) {
-  const st = game.state;
-  const car = playerCar(game);
-  if (!car) return;
-  const def = CAR_TYPES[car.type];
-  const axis = input.axis();
-  const handbrake = input.running();
-  const fwd = axis.y < 0 ? 1 : axis.y > 0 ? -0.55 : 0;
-  if (fwd) car.speed += def.accel * fwd * dt * (handbrake ? 0.5 : 1);
-  else car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), def.brake * 0.4 * dt);
-  if (handbrake) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 500 * dt);
-  car.speed = clamp(car.speed, -def.top * 0.45, def.top);
-  const grip = clamp(Math.abs(car.speed) / 220, 0, 1);
-  const steer = axis.x * def.turn * grip * (car.speed < 0 ? -1 : 1) * (handbrake ? 1.5 : 1);
-  if (Math.abs(car.speed) > 20) car.angle += steer * dt;
-  const nx = car.x + Math.cos(car.angle) * car.speed * dt;
-  const ny = car.y + Math.sin(car.angle) * car.speed * dt;
-  car.crashCd = Math.max(0, car.crashCd - dt);
-  const hit = game.city.collidesBuilding(nx, ny, 22);
-  if (hit) {
-    const impact = Math.abs(car.speed);
-    car.speed *= -0.25;
-    if (car.crashCd <= 0 && impact > 60) {
-      damageCar(game, car, Math.min(10, 2 + impact * 0.015));
-      car.crashCd = 0.6;
-      game.burst(nx, ny, '#c9c9c9', 6, 140);
-      if (game.audio) game.audio.crash();
-    }
-  } else {
-    car.x = nx;
-    car.y = ny;
+// The wanted star count from the current heat.
+export function wantedStars(S) {
+  const heat = S.player.heat || 0;
+  const t = CFG.police.wantedThresholds;
+  let stars = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (heat >= t[i]) stars = i;
   }
-  car.x = clamp(car.x, 60, WORLD.size - 60);
-  car.y = clamp(car.y, 60, WORLD.size - 60);
-  // Handbrake at speed kicks up tyre smoke.
-  if (car.speed > 60 && handbrake && game.rng.chance(0.3)) {
-    st.particles.push({
-      x: car.x - Math.cos(car.angle) * 20,
-      y: car.y - Math.sin(car.angle) * 20,
-      vx: 0,
-      vy: 0,
-      life: 0.9,
-      max: 0.9,
-      color: '#888',
-      size: 4,
-    });
-  }
-  // Running over pedestrians is a crime, and it is loud.
-  for (const ped of st.peds) {
-    if (!ped.dead && dist2(car.x, car.y, ped.x, ped.y) < 26 * 26 && Math.abs(car.speed) > 80) {
-      ped.dead = true;
-      game.burst(ped.x, ped.y, '#c94f43', 10, 160);
-      game.addWanted(1);
-    }
-  }
-  st.player.x = car.x;
-  st.player.y = car.y;
-  st.player.angle = car.angle;
-  car.smoke = car.hp < 25 ? 2 : car.hp < 50 ? 1 : 0;
-  if (car.smoke && game.rng.chance(0.2)) {
-    st.particles.push({
-      x: car.x,
-      y: car.y - 10,
-      vx: game.rng.range(-10, 10),
-      vy: -40,
-      life: 0.8,
-      max: 0.8,
-      color: '#666',
-      size: 5,
-    });
-  }
-  if (car.hp <= 0 && !car.dead) {
-    car.dead = true;
-    game.explode(car.x, car.y);
-    exitCar(game);
-    game.say('Your car blew up!', 3);
-  }
-}
-
-export function updateDriving(game, dt, input) {
-  if (playerCar(game)) drivePlayerCar(game, dt, input);
-}
-
-// Traffic: follow the nearest road line at a cruising speed, stop at red
-// lights, slow down for the car ahead, and wrap around the map edges.
-export function updateTraffic(game, dt) {
-  const st = game.state;
-  for (const car of st.cars) {
-    if (car.dead || !car.traffic) continue;
-    const def = CAR_TYPES[car.type];
-    const onX = Math.abs(car.y - game.city.nearestRoadZ(car.y)) < Math.abs(car.x - game.city.nearestRoadX(car.x));
-    let targetSpeed = def.top * 0.42;
-    const lightPhase = (st.time % 8) < 4;
-    const nearCross = Math.abs(car.x - game.city.nearestRoadX(car.x)) < 60
-      && Math.abs(car.y - game.city.nearestRoadZ(car.y)) < 60;
-    if (nearCross && !lightPhase) targetSpeed = 0;
-    for (const other of st.cars) {
-      if (other === car || other.dead) continue;
-      if (dist2(car.x, car.y, other.x, other.y) < 70 * 70) {
-        targetSpeed = Math.min(targetSpeed, 60);
-        break;
-      }
-    }
-    if (car.flee > 0) {
-      car.flee -= dt;
-      targetSpeed = def.top * 0.7;
-    }
-    car.speed += clamp(targetSpeed - car.speed, -def.brake * dt, def.accel * 0.6 * dt);
-    if (onX) {
-      car.angle = car.dir > 0 ? 0 : Math.PI;
-      car.y += (game.city.nearestRoadZ(car.y) + (car.dir > 0 ? 22 : -22) - car.y) * dt * 2;
-      car.x += Math.cos(car.angle) * car.speed * dt;
-    } else {
-      car.angle = car.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-      car.x += (game.city.nearestRoadX(car.x) + (car.dir > 0 ? -22 : 22) - car.x) * dt * 2;
-      car.y += Math.sin(car.angle) * car.speed * dt;
-    }
-    if (car.x < 80) car.x = WORLD.size - 100;
-    if (car.x > WORLD.size - 80) car.x = 100;
-    if (car.y < 80) car.y = WORLD.size - 100;
-    if (car.y > WORLD.size - 80) car.y = 100;
-    if (game.city.collidesBuilding(car.x, car.y, 20)) {
-      car.angle += Math.PI / 2;
-      car.dir *= -1;
-    }
-  }
+  return stars;
 }

@@ -1,120 +1,168 @@
-// Police and the wanted level, 0 to 5 stars.
-// One star brings cruisers that chase and ram. Higher stars bring more of
-// them, a helicopter from three stars that keeps the player visible, and a
-// roadblock from four. Out of every cruiser's sight for long enough and the
-// heat cools down one star at a time. Caught on foot, the player is busted.
-import { CAR_TYPES, POLICE, WORLD } from './config.js';
-import { clamp, dist2, angleTo, angleDiff } from './random.js';
-import { spawnVehicle, playerCar } from './vehicles.js';
+// The SCPD: wanted stars, chasing cruisers, roadblocks and the helicopter.
+// Heat rises with crimes and falls when the player stays out of sight; the
+// stars on the HUD are just the heat read through the config thresholds.
 
-export function addWanted(game, n) {
-  const st = game.state;
-  st.wanted = clamp(st.wanted + n, 0, POLICE.starsMax);
-  st.wantedTimer = 0;
-  if (n > 0) game.say('Wanted level ' + st.wanted + '!', 3);
+import { CFG } from './config.js';
+import { rand, pick, chance, clamp, angleDiff, dist } from './random.js';
+import { randomRoadPoint } from './city.js';
+import { makeCar, driveCar, moveCar, collideCars, wantedStars, addHeat } from './vehicles.js';
+import { scatterPeds } from './crowd.js';
+
+// How many cruisers the current wanted level wants on the road.
+export function desiredCops(S) {
+  return Math.min(CFG.police.maxCops, wantedStars(S));
 }
 
-// One cruiser spawns at a fixed distance in a random direction from the player.
-function spawnCruiser(game) {
-  const st = game.state;
-  const a = game.rng.range(0, Math.PI * 2);
-  const x = clamp(st.player.x + Math.cos(a) * POLICE.spawnDist, 100, WORLD.size - 100);
-  const y = clamp(st.player.y + Math.sin(a) * POLICE.spawnDist, 100, WORLD.size - 100);
-  const c = spawnVehicle(game, 'police', x, y, angleTo(x, y, st.player.x, st.player.y), { police: true });
-  c.traffic = false;
-  return c;
-}
-
-// Two cruisers placed on the road ahead of the player, already turning in.
-function setRoadblock(game) {
-  const st = game.state;
-  const p = st.player;
-  const ahead = p.angle;
-  for (let i = 0; i < POLICE.roadblockCars; i++) {
-    const x = clamp(p.x + Math.cos(ahead) * (420 + i * 90), 100, WORLD.size - 100);
-    const y = clamp(p.y + Math.sin(ahead) * (420 + i * 90), 100, WORLD.size - 100);
-    const c = spawnVehicle(game, 'police', x, y, angleTo(x, y, p.x, p.y), { police: true, roadblock: true });
-    c.traffic = false;
+// Spawn one cruiser on a road near the player, out of immediate sight.
+export function spawnCop(S) {
+  const p = S.player;
+  for (let tries = 0; tries < 12; tries++) {
+    const spot = randomRoadPoint(S.rng);
+    if (dist(spot.x, spot.y, p.x, p.y) < 500) continue;
+    const cop = makeCar('police', spot.x, spot.y, spot.ang, 'police');
+    cop.speed = 200;
+    S.cars.push(cop);
+    S.cops.push(cop);
+    return cop;
   }
-  game.say('Roadblock ahead!', 3);
+  return null;
 }
 
-export function updatePolice(game, dt) {
-  const st = game.state;
-  const p = st.player;
-  if (st.wanted > 0) {
-    // Cool down one star after a long quiet spell out of every cruiser's sight.
-    st.wantedTimer += dt;
-    let seen = false;
-    for (const c of st.cars) {
-      if (c.police && !c.dead && dist2(p.x, p.y, c.x, c.y) < 700 * 700) {
-        seen = true;
-        break;
+// A roadblock: two cruisers parked across the road ahead of the player.
+export function spawnRoadblock(S) {
+  const p = S.player;
+  const ang = p.inCar ? p.inCar.ang : p.ang;
+  const bx = p.x + Math.cos(ang) * 420;
+  const by = p.y + Math.sin(ang) * 420;
+  for (const off of [-52, 52]) {
+    const cx = bx + Math.cos(ang + Math.PI / 2) * off;
+    const cy = by + Math.sin(ang + Math.PI / 2) * off;
+    const cop = makeCar('police', cx, cy, ang + Math.PI / 2, 'roadblock');
+    S.cars.push(cop);
+    S.roadblocks.push(cop);
+  }
+  S.roadblockTimer = 24;
+}
+
+export function updatePolice(S, dt) {
+  const p = S.player;
+  const stars = wantedStars(S);
+
+  // Wanted decay: only while no cop can see the player.
+  let seen = false;
+  for (const cop of S.cops) {
+    if (!cop.dead && dist(cop.x, cop.y, p.x, p.y) < 520) { seen = true; break; }
+  }
+  if (S.heli) seen = true;
+  if (!seen && stars > 0) {
+    p.heat = Math.max(0, (p.heat || 0) - CFG.police.decayPerSecond * dt);
+  }
+
+  // Keep the cruiser count at the wanted level.
+  const alive = S.cops.filter((c) => !c.dead);
+  if (alive.length < desiredCops(S) && S.copSpawnTimer <= 0) {
+    spawnCop(S);
+    S.copSpawnTimer = 2.5;
+  }
+  S.copSpawnTimer -= dt;
+
+  // Roadblocks at three stars and up, on a timer.
+  S.roadblockTimer -= dt;
+  if (stars >= 3 && S.roadblockTimer <= 0) spawnRoadblock(S);
+
+  // The helicopter at four stars and up: it circles overhead and keeps the
+  // player lit, so the wanted level cannot decay while it is up.
+  if (stars >= 4 && !S.heli) {
+    S.heli = { x: p.x, y: p.y - 160, ang: 0, alt: 1 };
+  }
+  if (stars < 4) S.heli = null;
+  if (S.heli) {
+    S.heli.ang += dt * 0.9;
+    const tx = p.x + Math.cos(S.heli.ang) * 120;
+    const ty = p.y + Math.sin(S.heli.ang) * 120 - 60;
+    S.heli.x += (tx - S.heli.x) * dt * 1.2;
+    S.heli.y += (ty - S.heli.y) * dt * 1.2;
+  }
+
+  // Chase: each live cruiser steers at the player and tries to ram.
+  for (const cop of S.cops) {
+    if (cop.dead) continue;
+    const d = dist(cop.x, cop.y, p.x, p.y);
+    const wantAng = Math.atan2(p.y - cop.y, p.x - cop.x);
+    let diff = angleDiff(cop.ang, wantAng);
+    // A cruiser that is badly off-course reverses out before turning.
+    if (Math.abs(diff) > 2.2 && cop.speed > 40) {
+      driveCar(cop, -0.6, Math.sign(diff), false, dt);
+    } else {
+      const throttle = d > 60 ? 1 : 0.4;
+      driveCar(cop, throttle, clamp(diff * 1.4, -1, 1), false, dt);
+    }
+    moveCar(S, cop, dt);
+    // Ramming the player on foot hurts; ramming the player's car damages it.
+    if (d < 46) {
+      if (p.onFoot) {
+        p.hp -= 14 * dt;
+        p.x += (p.x - cop.x) / (d || 1) * 60 * dt;
+        p.y += (p.y - cop.y) / (d || 1) * 60 * dt;
+      } else if (p.inCar && Math.abs(cop.speed) > 120) {
+        p.inCar.hp -= 6 * dt;
+        cop.speed *= 0.6;
       }
     }
-    if (!seen && st.wantedTimer > POLICE.decayDelay) {
-      st.wanted--;
-      st.wantedTimer = 0;
-      if (st.wanted === 0) game.say('You lost the cops.', 3);
+    // Busted: a cruiser sitting on the player on foot ends the run.
+    if (p.onFoot && d < 34 && Math.abs(cop.speed) < 60) {
+      S.bustedTimer += dt;
+      if (S.bustedTimer > 1.2) bustPlayer(S);
+    } else {
+      S.bustedTimer = 0;
+    }
+    if (cop.hp <= 0) {
+      cop.dead = true;
+      S.cops = S.cops.filter((c) => c !== cop);
     }
   }
-  const want = POLICE.maxCruisers[st.wanted];
-  const cruisers = st.cars.filter((c) => c.police && !c.dead);
-  if (cruisers.length < want) spawnCruiser(game);
-  if (st.wanted >= POLICE.roadblockAtStars && !st.roadblockSet) {
-    st.roadblockSet = true;
-    setRoadblock(game);
-  }
-  if (st.wanted < POLICE.roadblockAtStars) st.roadblockSet = false;
 
-  for (const c of cruisers) {
-    const def = CAR_TYPES.police;
-    const a = angleTo(c.x, c.y, p.x, p.y);
-    const diff = angleDiff(c.angle, a);
-    c.angle += clamp(diff, -def.turn * dt, def.turn * dt);
-    const target = def.top * (st.wanted >= 3 ? 0.95 : 0.8);
-    c.speed += clamp(target - c.speed, -def.brake * dt, def.accel * dt);
-    const nx = c.x + Math.cos(c.angle) * c.speed * dt;
-    const ny = c.y + Math.sin(c.angle) * c.speed * dt;
-    if (game.city.collidesBuilding(nx, ny, 22)) {
-      c.speed *= 0.3;
-      c.angle += 0.6;
-    } else {
-      c.x = nx;
-      c.y = ny;
-    }
-    const d = Math.sqrt(dist2(c.x, c.y, p.x, p.y));
-    const pcar = playerCar(game);
-    if (pcar && d < 52) {
-      // Ram: shove the player's car and chew its hit points.
-      pcar.hp -= POLICE.ramDamage * dt;
-      c.speed *= 0.92;
-      pcar.x += Math.cos(a) * 30 * dt;
-      pcar.y += Math.sin(a) * 30 * dt;
-      if (game.rng.chance(0.05)) game.burst(pcar.x, pcar.y, '#c9c9c9', 4, 100);
-    }
-    if (!pcar && d < POLICE.bustRadius) {
-      st.bustTimer += dt;
-      if (st.bustTimer > POLICE.bustTime) {
-        st.screen = 'busted';
-        game.addCash(-Math.min(st.cash, 300));
-        st.wanted = 0;
-        game.save();
-        if (game.audio) game.audio.busted();
-      }
-    } else {
-      st.bustTimer = Math.max(0, st.bustTimer - dt * 2);
-    }
+  // Clean up dead and distant roadblocks.
+  S.roadblocks = S.roadblocks.filter((c) => !c.dead && dist(c.x, c.y, p.x, p.y) < 1600);
+  for (const rb of S.roadblocks) {
+    if (rb.hp <= 0) rb.dead = true;
   }
-  // The helicopter hovers over the player from three stars and keeps the
-  // heat from cooling, so the player has to break line of sight properly.
-  if (st.wanted >= POLICE.heliAtStars) {
-    if (!st.heli) st.heli = { x: p.x, y: p.y, angle: 0 };
-    st.heli.x += (p.x - st.heli.x) * dt * 0.7;
-    st.heli.y += (p.y - st.heli.y) * dt * 0.7;
-    st.heli.angle += dt * 2;
-    st.wantedTimer = Math.min(st.wantedTimer, 4);
-  } else {
-    st.heli = null;
-  }
+  S.cars = S.cars.filter((c) => !c.dead || c.driver === 'player');
+}
+
+// Caught on foot: pay the fine, lose the heat, wake up at the safehouse.
+export function bustPlayer(S) {
+  const p = S.player;
+  const fine = Math.min(p.cash, CFG.police.bustedFine);
+  p.cash -= fine;
+  p.heat = 0;
+  p.hp = p.maxHealth;
+  if (p.inCar) { p.inCar.driver = 'parked'; p.inCar = null; }
+  p.onFoot = true;
+  p.x = 1500; p.y = 2100;
+  S.cops = [];
+  S.heli = null;
+  S.mode = 'busted';
+  S.modeTimer = 0;
+  S.audio.busted();
+  S.banner = { title: 'BUSTED', sub: 'Fine paid: $' + fine, t: 0 };
+}
+
+// Killed: pay the hospital bill, lose the heat, wake up at the safehouse.
+export function wastePlayer(S) {
+  const p = S.player;
+  const fine = Math.min(p.cash, CFG.police.wastedFine);
+  p.cash -= fine;
+  p.heat = 0;
+  p.hp = p.maxHealth;
+  p.armor = 0;
+  if (p.inCar) { p.inCar.driver = 'parked'; p.inCar = null; }
+  p.onFoot = true;
+  p.x = 1500; p.y = 2100;
+  S.cops = [];
+  S.heli = null;
+  S.mode = 'wasted';
+  S.modeTimer = 0;
+  S.audio.busted();
+  S.banner = { title: 'WASTED', sub: 'Hospital bill: $' + fine, t: 0 };
 }
