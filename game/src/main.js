@@ -1,132 +1,142 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
+// Solara City boot and main loop. Input is read every frame, the game advances in
+// fixed 1/60 s steps (several in a slow frame, none in a fast one), and the renderer
+// paints what is there. Screens: menu, play, paused, busted, wasted, won.
+// ?seed=N fixes the city seed. ?shot=chase|foot|mission|night stages that scene
+// instead of running the loop, paints it twice and sets window.__shotReady.
+import { STEP, SEED_DEFAULT } from './config.js';
 import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import { createCity } from './city.js';
+import { createGame } from './game.js';
+import { createAudio } from './audio.js';
+import { ACTION_CONFIRM, ACTION_PAUSE, ACTION_ENTER, ACTION_MUTE, ACTION_PHOTO, ACTION_WEAPON_NEXT, createInput } from './input.js';
+import { createRenderer } from './render.js';
 import { stageShot } from './shots.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
 const MAX_FRAME = 0.25;
+const WEAPON_ORDER = ['fists', 'pistol', 'shotgun', 'smg'];
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
 const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+const seed = Number.isInteger(seedParam) ? seedParam : SEED_DEFAULT;
 
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
+const city = createCity(seed);
+const audio = createAudio();
+const game = createGame(city, seed, audio);
 const renderer = createRenderer(canvas);
+const input = createInput(canvas);
 
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
-  }
-}
+function announce(message) { status.textContent = message; }
 
 function runShot(name) {
-  const scene = stageShot(name, world);
+  game.load();
+  game.reset(false);
+  game.state.screen = 'play';
+  stageShot(name, city, game);
   let painted = 0;
   function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
+    renderer.draw(city, game, performance.now() / 1000);
     painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
+    if (painted < 3) requestAnimationFrame(paint);
     else window.__shotReady = true;
   }
   requestAnimationFrame(paint);
 }
 
 function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
+  const saved = game.load();
+  game.state.screen = 'menu';
   let accumulator = 0;
   let last = performance.now();
+  let shootPressed = false;
+  let prevMouse = false;
 
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame() {
-    world.reset();
+  function startGame(fresh) {
+    audio.unlock();
+    game.reset(fresh);
     accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
-  }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
+    announce('Playing Solara City. Follow the yellow marker.');
   }
 
   function handleActions() {
     const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
+    const s = game.state;
+    if (actions & ACTION_MUTE) {
+      audio.setMuted(!audio.muted);
+      s.muted = audio.muted; game.save();
+      announce(audio.muted ? 'Muted.' : 'Sound on.');
     }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
-      return;
+    if (actions & ACTION_PHOTO) { s.photoMode = !s.photoMode; }
+    if (actions & ACTION_WEAPON_NEXT) {
+      const i = WEAPON_ORDER.indexOf(s.player.weapon);
+      s.player.weapon = WEAPON_ORDER[(i + 1) % WEAPON_ORDER.length];
+      announce('Weapon: ' + s.player.weapon);
     }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
+    if (actions & ACTION_ENTER && s.screen === 'play') {
+      if (s.playerCar) game.exitCar();
+      else {
+        const car = game.nearestCar(70);
+        if (car) game.enterCar(car);
+        else announce('No car nearby. Walk to a car and press E.');
+      }
+    }
+    if (actions & ACTION_CONFIRM) {
+      if (s.screen === 'menu') startGame(false);
+      else if (s.screen === 'wasted' || s.screen === 'busted') { game.load(); startGame(false); }
+      else if (s.screen === 'won') { s.screen = 'play'; }
+      else if (s.screen === 'paused') { s.screen = 'play'; announce('Playing.'); }
+    }
+    if (actions & ACTION_PAUSE) {
+      if (s.screen === 'play') { s.screen = 'paused'; announce('Paused.'); }
+      else if (s.screen === 'paused') { s.screen = 'play'; announce('Playing.'); }
+    }
+    // C continues a saved game from the menu.
+    if (s.screen === 'menu' && input.anyKey) { /* Space/click handled above */ }
   }
 
   function frame(now) {
     requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
+    const dt = Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
+    const s = game.state;
     handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
-        accumulator -= STEP;
+    if (s.screen === 'play') {
+      accumulator += dt;
+      let n = 0;
+      while (accumulator >= STEP && n < 8) {
+        const world = renderer.screenToWorld(input.mouseX, input.mouseY);
+        const aim = Math.atan2(world.y - s.player.y, world.x - s.player.x);
+        const mouse = input.mouseDown;
+        shootPressed = mouse && !prevMouse;
+        game.step(STEP, input, aim, mouse, shootPressed);
+        prevMouse = mouse;
+        accumulator -= STEP; n++;
       }
+      if (n === 8) accumulator = 0;
     } else {
       accumulator = 0;
+      prevMouse = input.mouseDown;
     }
-    renderer.draw(world.state, screen, best);
+    // Click-to-start on the menu also works through the confirm action (Space/Enter);
+    // a canvas click is treated as confirm by the input layer's mouseClicked flag.
+    if (input.consumeClick() && (s.screen === 'menu' || s.screen === 'wasted' || s.screen === 'busted' || s.screen === 'won')) {
+      if (s.screen === 'menu') startGame(false);
+      else if (s.screen === 'won') s.screen = 'play';
+      else { game.load(); startGame(false); }
+    }
+    renderer.draw(city, game, now / 1000);
   }
 
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
+    if (document.hidden && game.state.screen === 'play') game.state.screen = 'paused';
   });
+  // First interaction unlocks WebAudio (browsers require a gesture).
+  window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
+  window.addEventListener('keydown', () => audio.unlock(), { once: true });
 
-  announce('Block Dodger. Press Space or click to start.');
+  announce('Solara City. Press Space or click to start.' + (saved ? ' Saved game found.' : ''));
   requestAnimationFrame(frame);
 }
 
